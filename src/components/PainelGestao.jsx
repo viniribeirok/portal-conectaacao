@@ -3,15 +3,16 @@ import {
   MapPin, Plus, Pencil, Trash2, X, LogOut, ShieldCheck, Building2, ArrowLeft, Eye, EyeOff,
   Upload, FileText, Check, Mail, Clock, Inbox, Save,
 } from 'lucide-react';
-import { USUARIOS_SEED, TIPOS_INSTITUICAO, FORM_VAZIO } from '../data/instituicoes';
+import { TIPOS_INSTITUICAO, FORM_VAZIO } from '../data/instituicoes';
 import { CATEGORIAS_FORM, STATUS_OPCOES, STATUS_COR_MAP, ICONE_CATEGORIA } from '../data/atividades';
 import {
-  carregarTodasInstituicoes, salvarTodasInstituicoes,
+  carregarTodasInstituicoes, criarPerfil, carregarPerfil, urlDocumento,
   adicionarInstituicao, editarInstituicao, removerInstituicao,
   carregarTurmasDaInstituicao, salvarTurmasDaInstituicao,
   instituicaoAprovada, atualizarStatusInstituicao, instituicaoTemCoordenadas,
 } from '../data/repositorio';
 import { geocodificarEndereco } from '../lib/geocodificacao';
+import { supabase } from '../lib/supabase';
 import { enviarEmailSimulado, carregarEmailsEnviados } from '../lib/email';
 import { storage } from '../lib/storage';
 
@@ -59,15 +60,6 @@ function FormularioInstituicao({ formInst, setFormInst, editando, formInstEmail,
         <div className="pn-campo"><label>Bairro</label><input type="text" value={formInst.bairro} onChange={(e) => setFormInst({ ...formInst, bairro: e.target.value })} /></div>
         <div className="pn-campo"><label>CEP</label><input type="text" value={formInst.cep} onChange={(e) => setFormInst({ ...formInst, cep: e.target.value })} placeholder="opcional" /></div>
       </div>
-      {!editando && (
-        <>
-          <div className="pn-campo-dupla">
-            <div className="pn-campo"><label>E-mail de acesso (opcional)</label><input type="text" value={formInstEmail} onChange={(e) => setFormInstEmail(e.target.value)} placeholder="deixe em branco pra não criar login" /></div>
-            <div className="pn-campo"><label>Senha (opcional)</label><input type="password" value={formInstSenha} onChange={(e) => setFormInstSenha(e.target.value)} placeholder="mín. 6 caracteres" /></div>
-          </div>
-          <p className="pn-nota-analise">Se preencher e-mail e senha, a instituição já nasce com acesso próprio ao painel (sem precisar passar pela fila de aprovação).</p>
-        </>
-      )}
       {erro && <p className="pn-erro-form">{erro}</p>}
       <div className="pn-form-acoes">
         <button className="pn-btn primario" onClick={onSalvar} disabled={salvando}><Save size={14} /> {salvando ? 'Localizando endereço…' : 'Salvar'}</button>
@@ -80,7 +72,6 @@ function FormularioInstituicao({ formInst, setFormInst, editando, formInstEmail,
 export default function PainelGestao({ voltar }) {
   const [carregandoSessao, setCarregandoSessao] = useState(true);
   const [todasInstituicoes, setTodasInstituicoes] = useState([]);
-  const [usuariosCadastrados, setUsuariosCadastrados] = useState([]);
   const [usuario, setUsuario] = useState(null);
   const [modoAuth, setModoAuth] = useState('entrar');
 
@@ -88,6 +79,7 @@ export default function PainelGestao({ voltar }) {
   const [senha, setSenha] = useState('');
   const [verSenha, setVerSenha] = useState(false);
   const [erroAuth, setErroAuth] = useState('');
+  const [enviandoAuth, setEnviandoAuth] = useState(false);
 
   const [reg, setReg] = useState({ nome: '', tipo: 'ONG', email: '', senha: '', confirmar: '', whatsapp: '', endereco: '', bairro: '', cep: '' });
   const [arquivoDoc, setArquivoDoc] = useState(null); // { nome, tipo, conteudo }
@@ -95,44 +87,71 @@ export default function PainelGestao({ voltar }) {
   const [cadastroEnviado, setCadastroEnviado] = useState(false);
 
   const instituicoesAprovadas = useMemo(() => todasInstituicoes.filter(instituicaoAprovada), [todasInstituicoes]);
-  const todosUsuarios = useMemo(() => [...USUARIOS_SEED, ...usuariosCadastrados], [usuariosCadastrados]);
 
   function nomeInstituicao(id) { return todasInstituicoes.find((i) => i.id === id)?.nome || id; }
 
+  // Qualquer falha de rede/servidor numa ação (promessa sem tratamento) vira um aviso na tela.
+  useEffect(() => {
+    const aoFalhar = (ev) => {
+      console.error(ev.reason);
+      setAvisoInst(`Erro ao falar com o servidor: ${ev.reason?.message || 'tente de novo'}`);
+    };
+    window.addEventListener('unhandledrejection', aoFalhar);
+    return () => window.removeEventListener('unhandledrejection', aoFalhar);
+  }, []);
+
+  // Uma ONG só entra no painel com o cadastro aprovado.
+  function mensagemAcessoOng(u, lista) {
+    const inst = lista.find((i) => i.id === u.instituicaoId);
+    if (!inst) return 'Essa instituição não existe mais no sistema.';
+    if (inst.status === 'pendente') return 'Seu cadastro ainda está em análise. Você recebe um e-mail assim que for avaliado.';
+    if (inst.status === 'recusada') return `Seu cadastro não foi aprovado.${inst.motivoRecusa ? ' Motivo: ' + inst.motivoRecusa : ''}`;
+    return null;
+  }
+
+  async function montarUsuario(authUser) {
+    const perfil = await carregarPerfil(authUser.id);
+    if (!perfil) return null;
+    return { email: authUser.email, papel: perfil.papel, instituicaoId: perfil.instituicaoId };
+  }
+
+  // Ao abrir: recupera a sessão do Supabase (se a pessoa já estava logada) e carrega as instituições.
   useEffect(() => {
     (async () => {
-      const instTodas = await carregarTodasInstituicoes();
-      let usrCad = [];
-      try { const r = await storage.get('usuarios-cadastrados', false); usrCad = r ? JSON.parse(r.value) : []; } catch (e) {}
-      setTodasInstituicoes(instTodas);
-      setUsuariosCadastrados(usrCad);
-
       try {
-        const r = await storage.get('sessao-login', false);
-        if (r) {
-          const salvo = JSON.parse(r.value);
-          const achado = [...USUARIOS_SEED, ...usrCad].find((u) => u.email === salvo.email);
-          if (achado) setUsuario(achado);
+        const { data } = await supabase.auth.getSession();
+        const lista = await carregarTodasInstituicoes();
+        setTodasInstituicoes(lista);
+        if (data.session) {
+          const u = await montarUsuario(data.session.user);
+          if (u && !(u.papel === 'ong' && mensagemAcessoOng(u, lista))) setUsuario(u);
+          else await supabase.auth.signOut();
         }
-      } catch (e) {}
+      } catch (e) {
+        console.error(e);
+      }
       setCarregandoSessao(false);
     })();
   }, []);
 
   async function entrar() {
-    const achado = todosUsuarios.find((u) => u.email.toLowerCase() === email.trim().toLowerCase() && u.senha === senha);
-    if (!achado) { setErroAuth('E-mail ou senha incorretos.'); return; }
-
-    if (achado.papel === 'ong') {
-      const inst = todasInstituicoes.find((i) => i.id === achado.instituicaoId);
-      if (!inst) { setErroAuth('Essa instituição não existe mais no sistema.'); return; }
-      const status = inst.status || 'aprovada';
-      if (status === 'pendente') { setErroAuth('Seu cadastro ainda está em análise. Você recebe um e-mail assim que for avaliado.'); return; }
-      if (status === 'recusada') { setErroAuth(`Seu cadastro não foi aprovado.${inst.motivoRecusa ? ' Motivo: ' + inst.motivoRecusa : ''}`); return; }
+    if (enviandoAuth) return;
+    setErroAuth(''); setEnviandoAuth(true);
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim(), password: senha });
+      if (error) { setErroAuth('E-mail ou senha incorretos.'); return; }
+      const u = await montarUsuario(data.user);
+      if (!u) { await supabase.auth.signOut(); setErroAuth('Essa conta não tem acesso ao painel.'); return; }
+      const lista = await carregarTodasInstituicoes();
+      setTodasInstituicoes(lista);
+      if (u.papel === 'ong') {
+        const aviso = mensagemAcessoOng(u, lista);
+        if (aviso) { await supabase.auth.signOut(); setErroAuth(aviso); return; }
+      }
+      setUsuario(u);
+    } finally {
+      setEnviandoAuth(false);
     }
-
-    setUsuario(achado); setErroAuth('');
-    try { await storage.set('sessao-login', JSON.stringify({ email: achado.email }), false); } catch (e) {}
   }
 
   async function selecionarArquivo(e) {
@@ -148,45 +167,78 @@ export default function PainelGestao({ voltar }) {
     }
   }
 
+  function traduzirErroAuth(msg = '') {
+    if (/already registered/i.test(msg)) return 'Já existe uma conta com esse e-mail.';
+    if (/password/i.test(msg)) return 'A senha não foi aceita. Use pelo menos 6 caracteres.';
+    if (/rate limit|too many/i.test(msg)) return 'Muitas tentativas seguidas. Espere um pouco e tente de novo.';
+    return `Não foi possível criar a conta: ${msg}`;
+  }
+
+  // Cadastro de ONG: cria o login no Supabase, envia o documento, grava a instituição como "pendente" e o perfil.
   async function cadastrarOng() {
+    if (enviandoAuth) return;
     if (!reg.nome.trim()) { setErroAuth('Dá um nome pra instituição.'); return; }
     if (!reg.email.trim().includes('@')) { setErroAuth('Digita um e-mail válido.'); return; }
-    if (todosUsuarios.some((u) => u.email.toLowerCase() === reg.email.trim().toLowerCase())) { setErroAuth('Já existe uma conta com esse e-mail.'); return; }
     if (reg.senha.length < 6) { setErroAuth('A senha precisa ter pelo menos 6 caracteres.'); return; }
     if (reg.senha !== reg.confirmar) { setErroAuth('As senhas não são iguais.'); return; }
     if (!reg.whatsapp.trim()) { setErroAuth('Informa um WhatsApp de contato.'); return; }
     if (!arquivoDoc) { setErroAuth('Anexa um documento que comprove a instituição (estatuto, CNPJ, etc.).'); return; }
 
-    const novoId = `inst-${Date.now()}`;
-    // Sem latitude/longitude por enquanto — o formulário de cadastro não
-    // pede endereço geocodificado. A busca (Portal) já sabe lidar com isso:
-    // a atividade aparece normalmente na lista, só não aparece no mapa.
-    const novaInstituicao = {
-      id: novoId, nome: reg.nome.trim(), tipo: reg.tipo, whatsapp: reg.whatsapp.trim(), endereco: reg.endereco.trim(), bairro: reg.bairro.trim(), cep: reg.cep.trim(),
-      status: 'pendente',
-      documento: { nome: arquivoDoc.nome, tipo: arquivoDoc.tipo, conteudo: arquivoDoc.conteudo },
-      dataCadastro: new Date().toISOString(),
-    };
-    const novoUsuario = { email: reg.email.trim().toLowerCase(), senha: reg.senha, papel: 'ong', instituicaoId: novoId };
-
-    const novaListaInst = [...todasInstituicoes, novaInstituicao];
-    const novaListaUsr = [...usuariosCadastrados, novoUsuario];
-    setTodasInstituicoes(novaListaInst);
-    setUsuariosCadastrados(novaListaUsr);
+    setErroAuth(''); setEnviandoAuth(true);
     try {
-      await salvarTodasInstituicoes(novaListaInst);
-      await storage.set('usuarios-cadastrados', JSON.stringify(novaListaUsr), false);
-    } catch (e) {}
+      const emailLimpo = reg.email.trim().toLowerCase();
+      const { data: cadastro, error: erroCadastro } = await supabase.auth.signUp({ email: emailLimpo, password: reg.senha });
+      if (erroCadastro) { setErroAuth(traduzirErroAuth(erroCadastro.message)); return; }
+      if (!cadastro.session) {
+        setErroAuth('O Supabase está exigindo confirmação de e-mail. Desative "Confirm email" em Authentication → Providers → Email.');
+        return;
+      }
+      const uid = cadastro.user.id;
+      try {
+        const resposta = await fetch(arquivoDoc.conteudo);
+        const arquivo = await resposta.blob();
+        const caminho = `${uid}/${Date.now()}-${arquivoDoc.nome.replace(/[^\w.\-]+/g, '_')}`;
+        const { error: erroUpload } = await supabase.storage.from('documentos').upload(caminho, arquivo, { contentType: arquivoDoc.tipo || undefined });
+        if (erroUpload) throw erroUpload;
 
-    setErroAuth('');
-    setReg({ nome: '', tipo: 'ONG', email: '', senha: '', confirmar: '', whatsapp: '', endereco: '', bairro: '', cep: '' });
-    setArquivoDoc(null);
-    setCadastroEnviado(true);
+        // Sem latitude/longitude por enquanto — o endereço é localizado no mapa quando o admin aprova.
+        const { nova } = await adicionarInstituicao({
+          nome: reg.nome.trim(), tipo: reg.tipo, whatsapp: reg.whatsapp.trim(), endereco: reg.endereco.trim(),
+          bairro: reg.bairro.trim(), cep: reg.cep.trim(), emailContato: emailLimpo, ownerId: uid,
+          documento: { nome: arquivoDoc.nome, path: caminho },
+        }, 'pendente');
+        await criarPerfil({ userId: uid, papel: 'ong', instituicaoId: nova.id });
+      } catch (e) {
+        console.error(e);
+        await supabase.auth.signOut();
+        setErroAuth(`Não foi possível concluir o cadastro: ${e.message || 'erro desconhecido'}.`);
+        return;
+      }
+      await supabase.auth.signOut();
+      setReg({ nome: '', tipo: 'ONG', email: '', senha: '', confirmar: '', whatsapp: '', endereco: '', bairro: '', cep: '' });
+      setArquivoDoc(null);
+      setCadastroEnviado(true);
+    } finally {
+      setEnviandoAuth(false);
+    }
   }
 
   async function sair() {
+    try { await supabase.auth.signOut(); } catch (e) { /* segue */ }
     setUsuario(null); setEmail(''); setSenha(''); setModoAuth('entrar'); setCadastroEnviado(false);
-    try { await storage.delete('sessao-login', false); } catch (e) {}
+    try { setTodasInstituicoes(await carregarTodasInstituicoes()); } catch (e) { /* segue */ }
+  }
+
+  // Abre o documento anexado (o arquivo é privado: o link é gerado na hora e vale por 10 minutos).
+  async function baixarDocumento(inst) {
+    const janela = window.open('', '_blank');
+    try {
+      const url = await urlDocumento(inst.documento.path);
+      if (janela) janela.location.href = url; else window.location.href = url;
+    } catch (e) {
+      if (janela) janela.close();
+      throw e;
+    }
   }
 
   // ------------------------------------------- cadastros pendentes (admin) --
@@ -216,9 +268,8 @@ export default function PainelGestao({ voltar }) {
     }
     const novaLista = await atualizarStatusInstituicao(inst.id, 'aprovada', extra);
     setTodasInstituicoes(novaLista);
-    const usuarioDaInst = usuariosCadastrados.find((u) => u.instituicaoId === inst.id);
     await enviarEmailSimulado({
-      destinatario: usuarioDaInst?.email || '(e-mail não encontrado)',
+      destinatario: inst.emailContato || '(e-mail não encontrado)',
       assunto: 'Seu cadastro no Portal ConectaAção foi aprovado! 🎉',
       corpo: `Olá! O cadastro de "${inst.nome}" foi aprovado. Você já pode entrar no painel com o e-mail e a senha cadastrados e começar a cadastrar suas turmas — elas aparecerão automaticamente na busca dos pais.`,
     });
@@ -231,9 +282,8 @@ export default function PainelGestao({ voltar }) {
   async function confirmarRecusa(inst) {
     const novaLista = await atualizarStatusInstituicao(inst.id, 'recusada', { motivoRecusa: motivoRecusa.trim() || null });
     setTodasInstituicoes(novaLista);
-    const usuarioDaInst = usuariosCadastrados.find((u) => u.instituicaoId === inst.id);
     await enviarEmailSimulado({
-      destinatario: usuarioDaInst?.email || '(e-mail não encontrado)',
+      destinatario: inst.emailContato || '(e-mail não encontrado)',
       assunto: 'Sobre o seu cadastro no Portal ConectaAção',
       corpo: `Olá! O cadastro de "${inst.nome}" não foi aprovado desta vez.${motivoRecusa.trim() ? ` Motivo: ${motivoRecusa.trim()}` : ''} Você pode entrar em contato com a equipe do portal pra entender melhor ou corrigir e enviar um novo cadastro.`,
     });
@@ -276,16 +326,6 @@ export default function PainelGestao({ voltar }) {
     if (salvandoInst) return;
     if (!formInst.nome.trim()) { setErroFormInst('Dá um nome pra instituição.'); return; }
     if (!formInst.whatsapp.trim()) { setErroFormInst('Informa um WhatsApp de contato.'); return; }
-    if (!editandoInstId) {
-      // admin criando uma instituição nova — login é opcional (se preencher
-      // e-mail + senha, a instituição já nasce com acesso próprio ao painel)
-      if (formInstEmail.trim() && todosUsuarios.some((u) => u.email.toLowerCase() === formInstEmail.trim().toLowerCase())) {
-        setErroFormInst('Já existe uma conta com esse e-mail.'); return;
-      }
-      if (formInstEmail.trim() && formInstSenha.length < 6) {
-        setErroFormInst('A senha precisa ter pelo menos 6 caracteres (ou deixa e-mail e senha em branco pra não criar login agora).'); return;
-      }
-    }
 
     setErroFormInst(''); setAvisoInst(''); setSalvandoInst(true);
     try {
@@ -309,14 +349,8 @@ export default function PainelGestao({ voltar }) {
         const novaLista = await editarInstituicao(editandoInstId, campos);
         setTodasInstituicoes(novaLista);
       } else {
-        const { lista, nova } = await adicionarInstituicao(campos, 'aprovada');
+        const { lista } = await adicionarInstituicao(campos, 'aprovada');
         setTodasInstituicoes(lista);
-        if (formInstEmail.trim()) {
-          const novoUsuario = { email: formInstEmail.trim().toLowerCase(), senha: formInstSenha, papel: 'ong', instituicaoId: nova.id };
-          const novaListaUsr = [...usuariosCadastrados, novoUsuario];
-          setUsuariosCadastrados(novaListaUsr);
-          try { await storage.set('usuarios-cadastrados', JSON.stringify(novaListaUsr), false); } catch (e) {}
-        }
       }
       setFormInstAberto(false); setEditandoInstId(null);
     } finally {
@@ -343,12 +377,6 @@ export default function PainelGestao({ voltar }) {
   async function confirmarRemocaoInstituicao(inst) {
     const novaLista = await removerInstituicao(inst.id);
     setTodasInstituicoes(novaLista);
-    // limpa também o login associado, se houver (pra não sobrar conta órfã)
-    const novaListaUsr = usuariosCadastrados.filter((u) => u.instituicaoId !== inst.id);
-    if (novaListaUsr.length !== usuariosCadastrados.length) {
-      setUsuariosCadastrados(novaListaUsr);
-      try { await storage.set('usuarios-cadastrados', JSON.stringify(novaListaUsr), false); } catch (e) {}
-    }
     setRemovendoInstId(null);
     if (institucaoAtualId === inst.id) setInstituicaoAtualId('todas');
   }
@@ -533,6 +561,7 @@ export default function PainelGestao({ voltar }) {
     .pn-aviso-info button { border:none; background:transparent; color:var(--muted); cursor:pointer; padding:2px; display:flex; flex-shrink:0; }
     .pn-tag-aviso { background:rgba(232,162,59,0.18); color:#8a5a00; font-weight:600; }
     .pn-mini-btn:disabled, .pn-btn:disabled { opacity:0.55; cursor:default; }
+    button.pn-doc-link { border:none; background:transparent; cursor:pointer; font-family:inherit; padding:0; }
 
     /* ---- Desktop: painel usa a largura da tela, login fica num cartão centralizado ---- */
     @media (min-width: 860px) {
@@ -588,7 +617,7 @@ export default function PainelGestao({ voltar }) {
             <div className="pn-login-card">
               <h2>Entrar no painel</h2>
               <p className="desc">Use o e-mail e a senha da sua instituição, ou a conta de administrador.</p>
-              <div className="pn-campo"><label>E-mail ou usuário</label><input type="text" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="sua-ong@conectaacao.org" onKeyDown={(e) => e.key === 'Enter' && entrar()} /></div>
+              <div className="pn-campo"><label>E-mail</label><input type="text" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="seu-email@exemplo.org" onKeyDown={(e) => e.key === 'Enter' && entrar()} /></div>
               <div className="pn-campo">
                 <label>Senha</label>
                 <div className="pn-senha-wrap">
@@ -680,9 +709,9 @@ export default function PainelGestao({ voltar }) {
                   <p className="pn-pendente-info">WhatsApp: {inst.whatsapp} {inst.endereco && `· ${inst.endereco}`}</p>
                   <p className="pn-pendente-info">Cadastrado em {new Date(inst.dataCadastro).toLocaleDateString('pt-BR')}</p>
                   {inst.documento && (
-                    <a className="pn-doc-link" href={inst.documento.conteudo} download={inst.documento.nome}>
+                    <button className="pn-doc-link" onClick={() => baixarDocumento(inst)}>
                       <FileText size={13} /> {inst.documento.nome}
-                    </a>
+                    </button>
                   )}
                   {recusandoId === inst.id ? (
                     <div className="pn-recusa-form">

@@ -55,6 +55,7 @@ function AjustarMapa({ centro, zoom, view }) {
 export default function Portal({ voltar }) {
   const [atividades, setAtividades] = useState([]);
   const [carregandoAtividades, setCarregandoAtividades] = useState(true);
+  const [erroCarregar, setErroCarregar] = useState('');
   const [busca, setBusca] = useState('');
   const [categoria, setCategoria] = useState('Todas');
   const [idade, setIdade] = useState('');
@@ -70,8 +71,13 @@ export default function Portal({ voltar }) {
   useEffect(() => {
     let cancelado = false;
     (async () => {
-      const dados = await carregarAtividades();
-      if (!cancelado) { setAtividades(dados); setCarregandoAtividades(false); }
+      try {
+        const dados = await carregarAtividades();
+        if (!cancelado) { setAtividades(dados); setCarregandoAtividades(false); }
+      } catch (e) {
+        console.error(e);
+        if (!cancelado) setErroCarregar('Não foi possível carregar as atividades agora. Verifique sua conexão e recarregue a página.');
+      }
     })();
     return () => { cancelado = true; };
   }, []);
@@ -295,7 +301,7 @@ export default function Portal({ voltar }) {
         </div>
 
         {carregandoAtividades ? (
-          <p className="pt-contagem">Carregando atividades…</p>
+          <p className="pt-contagem">{erroCarregar || 'Carregando atividades…'}</p>
         ) : (
           <>
             <div className="pt-contagem">{resultados.length === 0 ? 'Nenhuma atividade encontrada' : `${resultados.length} ${resultados.length === 1 ? 'atividade encontrada' : 'atividades encontradas'}`}</div>

@@ -3,6 +3,18 @@
 Projeto React (Vite) com três telas: início, busca dos pais (sem login) e
 painel de gestão das ONGs/CEUs (com login e cadastro).
 
+## Esta versão usa o Supabase (login + banco online)
+
+Siga o passo a passo em `supabase/LEIAME.md`. Resumo: criar o projeto no Supabase,
+rodar `supabase/schema.sql` e `supabase/seed.sql`, criar o administrador, preencher o
+`.env.local` (modelo em `.env.example`) e rodar `npm install` e `npm run dev`.
+
+As seções abaixo sobre `admin`/`admin`, contas de teste e dados no `localStorage` descrevem
+o modo protótipo anterior, que continua em `src/data/repositorioLocal.js` (usado nos testes
+automáticos). Nesta versão: o login é por e-mail e senha (Supabase Auth), os dados ficam no
+banco compartilhado, os documentos vão para um armazenamento privado e o e-mail de
+aprovação ainda é simulado.
+
 ## Como rodar no VSCode
 
 Pré-requisito: [Node.js](https://nodejs.org) 18 ou mais novo instalado.

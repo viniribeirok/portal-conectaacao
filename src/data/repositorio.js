@@ -1,123 +1,136 @@
-import { storage } from '../lib/storage';
-import { INSTITUICOES_SEED, TURMAS_SEED } from './instituicoes';
+import { supabase } from '../lib/supabase';
 
 /**
- * Este arquivo é a ponte entre o painel de gestão e a busca dos pais.
- * As duas telas passam a ler e escrever exatamente pelas mesmas funções
- * daqui — então uma turma cadastrada no painel aparece na busca (e
- * vice-versa), desde que seja no mesmo navegador (ver README sobre os
- * limites do localStorage).
+ * Camada de dados — versão com Supabase (banco PostgreSQL online + login).
+ * As telas continuam chamando as MESMAS funções de antes; só o "por dentro" mudou:
+ * em vez do localStorage do navegador, lê e grava no banco compartilhado.
+ * (A versão antiga em localStorage ficou em repositorioLocal.js, usada só nos testes.)
+ * Quem pode ver/alterar o quê é decidido pelo banco (regras RLS em supabase/schema.sql).
  */
 
-// ------------------------------------------------------- instituições --
-// Todas as instituições — as 18 "de fábrica" (INSTITUICOES_SEED) e as
-// cadastradas depois — vivem numa lista só, editável de verdade (dá pra
-// adicionar, editar e remover qualquer uma, não só as novas). Na primeira
-// vez que o app roda, essa lista é "semeada" a partir de INSTITUICOES_SEED
-// e passa a viver só no localStorage dali em diante.
-const CHAVE_INSTITUICOES = 'instituicoes-todas';
-const CHAVE_INSTITUICOES_ANTIGA = 'instituicoes-cadastradas'; // formato usado antes desta mudança
-
-async function hidratarInstituicoes() {
-  // Migração: se já existiam instituições cadastradas no formato antigo
-  // (antes desta lista unificada existir), elas entram junto na semente,
-  // pra não perder cadastros de teste já feitos.
-  let extras = [];
-  try {
-    const rAntigo = await storage.get(CHAVE_INSTITUICOES_ANTIGA, false);
-    extras = rAntigo ? JSON.parse(rAntigo.value) : [];
-  } catch (e) { /* nada no formato antigo, segue só com a semente */ }
-
-  const inicial = [
-    ...INSTITUICOES_SEED.map((i) => ({ ...i, status: i.status || 'aprovada' })),
-    ...extras,
-  ];
-  try { await storage.set(CHAVE_INSTITUICOES, JSON.stringify(inicial), false); } catch (e) { /* segue sem persistir */ }
-  return inicial;
+function dados({ data, error }) {
+  if (error) throw error;
+  return data;
 }
 
-export async function carregarTodasInstituicoes() {
-  try {
-    const r = await storage.get(CHAVE_INSTITUICOES, false);
-    return r ? JSON.parse(r.value) : await hidratarInstituicoes();
-  } catch (e) {
-    return await hidratarInstituicoes();
+// ---------------------------------------------- conversão linha do banco <-> objeto das telas
+function deLinha(r) {
+  return {
+    id: r.id, nome: r.nome, tipo: r.tipo, whatsapp: r.whatsapp, endereco: r.endereco, bairro: r.bairro, cep: r.cep,
+    latitude: r.latitude, longitude: r.longitude, precisaoLocalizacao: r.precisao_localizacao,
+    status: r.status, motivoRecusa: r.motivo_recusa, emailContato: r.email_contato, ownerId: r.owner_id,
+    documento: r.documento_path ? { nome: r.documento_nome, path: r.documento_path } : null,
+    dataCadastro: r.criado_em, dataRevisao: r.revisado_em,
+  };
+}
+
+const CAMPOS = {
+  nome: 'nome', tipo: 'tipo', whatsapp: 'whatsapp', endereco: 'endereco', bairro: 'bairro', cep: 'cep',
+  latitude: 'latitude', longitude: 'longitude', precisaoLocalizacao: 'precisao_localizacao',
+  status: 'status', motivoRecusa: 'motivo_recusa', emailContato: 'email_contato', ownerId: 'owner_id', dataRevisao: 'revisado_em',
+};
+
+function paraLinha(campos) {
+  const linha = {};
+  for (const [chave, coluna] of Object.entries(CAMPOS)) {
+    if (campos[chave] !== undefined) linha[coluna] = campos[chave];
   }
+  if (campos.documento) {
+    linha.documento_path = campos.documento.path;
+    linha.documento_nome = campos.documento.nome;
+  }
+  return linha;
 }
 
-export async function salvarTodasInstituicoes(lista) {
-  await storage.set(CHAVE_INSTITUICOES, JSON.stringify(lista), false);
+function deLinhaTurma(r) {
+  return { id: r.id, nome: r.nome, categoria: r.categoria, idadeMin: r.idade_min, idadeMax: r.idade_max, status: r.status, atestado: r.atestado, historico: r.historico };
 }
 
-// Só instituições com latitude e longitude numéricas aparecem no mapa e
-// entram na ordenação por distância.
+function paraLinhaTurma(institucaoId, t) {
+  return {
+    instituicao_id: institucaoId, id: t.id, nome: t.nome, categoria: t.categoria,
+    idade_min: Number(t.idadeMin), idade_max: Number(t.idadeMax), status: t.status,
+    atestado: !!t.atestado, historico: !!t.historico,
+  };
+}
+
+// ------------------------------------------------------- instituições --
+export async function carregarTodasInstituicoes() {
+  return dados(await supabase.from('instituicoes').select('*').order('nome')).map(deLinha);
+}
+
+// Só instituições com latitude e longitude numéricas aparecem no mapa e entram na ordenação por distância.
 export function instituicaoTemCoordenadas(inst) {
   return typeof inst?.latitude === 'number' && typeof inst?.longitude === 'number';
 }
 
-// Instituições sem campo `status` (não deve mais acontecer, mas por
-// segurança) são tratadas como já aprovadas.
 export function instituicaoAprovada(inst) {
   return (inst.status || 'aprovada') === 'aprovada';
 }
 
-/** Admin adiciona uma instituição diretamente (nasce aprovada, por padrão —
- * o admin já está vouching por ela). O cadastro público (com documento e
- * fila de aprovação) usa statusInicial='pendente' explicitamente. */
-export async function adicionarInstituicao(dados, statusInicial = 'aprovada') {
+/** Admin cria direto (nasce aprovada); o cadastro público usa statusInicial='pendente'. */
+export async function adicionarInstituicao(dadosNovos, statusInicial = 'aprovada') {
+  const linha = { ...paraLinha(dadosNovos), status: statusInicial };
+  const nova = deLinha(dados(await supabase.from('instituicoes').insert(linha).select().single()));
   const lista = await carregarTodasInstituicoes();
-  const nova = { id: `inst-${Date.now()}`, dataCadastro: new Date().toISOString(), status: statusInicial, ...dados };
-  const novaLista = [...lista, nova];
-  await salvarTodasInstituicoes(novaLista);
-  return { lista: novaLista, nova };
+  return { lista, nova };
 }
 
-/** Edita os dados de uma instituição já existente (admin, ou a própria
- * instituição editando os próprios dados). */
 export async function editarInstituicao(institucaoId, campos) {
-  const lista = await carregarTodasInstituicoes();
-  const novaLista = lista.map((i) => (i.id === institucaoId ? { ...i, ...campos } : i));
-  await salvarTodasInstituicoes(novaLista);
-  return novaLista;
+  dados(await supabase.from('instituicoes').update(paraLinha(campos)).eq('id', institucaoId));
+  return carregarTodasInstituicoes();
 }
 
-/** Remove uma instituição e limpa as turmas associadas a ela. */
+/** Remove a instituição (as turmas saem junto, em cascata) e apaga o documento anexado. */
 export async function removerInstituicao(institucaoId) {
-  const lista = await carregarTodasInstituicoes();
-  const novaLista = lista.filter((i) => i.id !== institucaoId);
-  await salvarTodasInstituicoes(novaLista);
-  try { await storage.delete(`ong-turmas:${institucaoId}`, false); } catch (e) { /* não tinha turma salva, ok */ }
-  return novaLista;
+  const antes = dados(await supabase.from('instituicoes').select('documento_path').eq('id', institucaoId).maybeSingle());
+  dados(await supabase.from('instituicoes').delete().eq('id', institucaoId));
+  if (antes?.documento_path) {
+    try { await supabase.storage.from('documentos').remove([antes.documento_path]); } catch (e) { /* sem documento, tudo bem */ }
+  }
+  return carregarTodasInstituicoes();
 }
 
 export async function atualizarStatusInstituicao(institucaoId, novoStatus, extra = {}) {
   return editarInstituicao(institucaoId, { status: novoStatus, dataRevisao: new Date().toISOString(), ...extra });
 }
 
+// ------------------------------------------------------ perfis e documentos --
+export async function carregarPerfil(userId) {
+  const r = dados(await supabase.from('perfis').select('papel, instituicao_id').eq('user_id', userId).maybeSingle());
+  return r ? { papel: r.papel, instituicaoId: r.instituicao_id } : null;
+}
+
+export async function criarPerfil({ userId, papel, instituicaoId }) {
+  dados(await supabase.from('perfis').insert({ user_id: userId, papel, instituicao_id: instituicaoId }));
+}
+
+/** Link temporário (10 min) para abrir o documento anexado — o bucket é privado. */
+export async function urlDocumento(caminho) {
+  const r = dados(await supabase.storage.from('documentos').createSignedUrl(caminho, 600));
+  return r.signedUrl;
+}
+
 // ------------------------------------------------------------- turmas --
 export async function carregarTurmasDaInstituicao(institucaoId) {
-  try {
-    const r = await storage.get(`ong-turmas:${institucaoId}`, false);
-    return r ? JSON.parse(r.value) : (TURMAS_SEED[institucaoId] || []);
-  } catch (e) {
-    // primeira vez que essa instituição é acessada: usa a semente e já salva,
-    // pra próxima leitura (de qualquer uma das duas telas) vir daqui.
-    const semente = TURMAS_SEED[institucaoId] || [];
-    try { await storage.set(`ong-turmas:${institucaoId}`, JSON.stringify(semente), false); } catch (e2) { /* segue sem persistir */ }
-    return semente;
+  return dados(await supabase.from('turmas').select('*').eq('instituicao_id', institucaoId).order('nome')).map(deLinhaTurma);
+}
+
+/** Sincroniza a lista de turmas da instituição: grava as que estão na lista e apaga as que saíram dela. */
+export async function salvarTurmasDaInstituicao(institucaoId, turmas) {
+  const existentes = dados(await supabase.from('turmas').select('id').eq('instituicao_id', institucaoId));
+  const manter = new Set(turmas.map((t) => t.id));
+  const apagar = existentes.map((r) => r.id).filter((id) => !manter.has(id));
+  if (turmas.length > 0) {
+    dados(await supabase.from('turmas').upsert(turmas.map((t) => paraLinhaTurma(institucaoId, t)), { onConflict: 'instituicao_id,id' }));
+  }
+  if (apagar.length > 0) {
+    dados(await supabase.from('turmas').delete().eq('instituicao_id', institucaoId).in('id', apagar));
   }
 }
 
-export async function salvarTurmasDaInstituicao(institucaoId, turmas) {
-  await storage.set(`ong-turmas:${institucaoId}`, JSON.stringify(turmas), false);
-}
-
 // --------------------------------------------------------- documentos --
-/**
- * Monta o checklist de documentos a partir das exigências da turma
- * (atestado médico / histórico escolar). Mesma lógica usada no banco
- * (build_db.py) e no protótipo original do checklist.
- */
+/** Checklist de documentos a partir das exigências da turma (atestado médico / histórico escolar). */
 export function construirDocumentos({ atestado = false, historico = false } = {}) {
   const docs = [
     { descricao: 'RG ou Certidão de Nascimento da criança', obrigatorio: true },
@@ -132,37 +145,18 @@ export function construirDocumentos({ atestado = false, historico = false } = {}
 }
 
 // --------------------------------------------------- atividades (busca) --
-/**
- * Junta instituições + turmas de cada uma num formato "achatado", pronto
- * pro Portal (busca dos pais) usar — é o mesmo formato que antes vinha
- * fixo em DADOS_DO_BANCO, só que montado na hora a partir do que estiver
- * salvo (ou da semente, na primeira vez).
- */
+/** Atividades de instituições APROVADAS, no formato "achatado" que a busca dos pais usa. Não precisa de login. */
 export async function carregarAtividades() {
-  const instituicoes = await carregarTodasInstituicoes();
-  const aprovadas = instituicoes.filter(instituicaoAprovada);
-
-  const listas = await Promise.all(
-    aprovadas.map(async (inst) => {
-      const turmas = await carregarTurmasDaInstituicao(inst.id);
-      return turmas.map((t) => ({
-        id: `${inst.id}::${t.id}`,
-        nome: t.nome,
-        instituicao: inst.nome,
-        tipo: inst.tipo,
-        categoria: t.categoria,
-        idadeMin: t.idadeMin,
-        idadeMax: t.idadeMax,
-        bairro: inst.bairro,
-        endereco: inst.endereco,
-        status: t.status,
-        whatsapp: inst.whatsapp,
-        latitude: inst.latitude,
-        longitude: inst.longitude,
-        documentos: construirDocumentos(t),
-      }));
-    })
-  );
-
-  return listas.flat();
+  const linhas = dados(await supabase.from('instituicoes').select('*, turmas(*)').eq('status', 'aprovada').order('nome'));
+  return linhas.flatMap((r) => {
+    const inst = deLinha(r);
+    return (r.turmas || []).map((linhaTurma) => {
+      const t = deLinhaTurma(linhaTurma);
+      return {
+        id: `${inst.id}::${t.id}`, nome: t.nome, instituicao: inst.nome, tipo: inst.tipo, categoria: t.categoria,
+        idadeMin: t.idadeMin, idadeMax: t.idadeMax, bairro: inst.bairro, endereco: inst.endereco, status: t.status,
+        whatsapp: inst.whatsapp, latitude: inst.latitude, longitude: inst.longitude, documentos: construirDocumentos(t),
+      };
+    });
+  });
 }

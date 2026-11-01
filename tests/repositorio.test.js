@@ -11,7 +11,7 @@ import {
   carregarAtividades,
   instituicaoAprovada,
   atualizarStatusInstituicao,
-} from '../src/data/repositorio';
+} from '../src/data/repositorioLocal';
 import { INSTITUICOES_SEED } from '../src/data/instituicoes';
 
 beforeEach(() => {
