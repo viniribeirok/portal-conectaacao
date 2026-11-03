@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { hojeISO, eventoJaPassou } from '../utils/eventos';
 
 /**
  * Camada de dados — versão com Supabase (banco PostgreSQL online + login).
@@ -43,7 +44,12 @@ function paraLinha(campos) {
 }
 
 function deLinhaTurma(r) {
-  return { id: r.id, nome: r.nome, categoria: r.categoria, idadeMin: r.idade_min, idadeMax: r.idade_max, status: r.status, atestado: r.atestado, historico: r.historico };
+  return {
+    id: r.id, nome: r.nome, categoria: r.categoria, idadeMin: r.idade_min, idadeMax: r.idade_max, status: r.status,
+    atestado: r.atestado, historico: r.historico,
+    tipoAtividade: r.tipo_atividade || 'continua', dataEvento: r.data_evento || '', horaInicio: r.hora_inicio || '', horaFim: r.hora_fim || '',
+    endereco: r.endereco || '', bairro: r.bairro || '', latitude: r.latitude, longitude: r.longitude, precisaoLocalizacao: r.precisao_localizacao,
+  };
 }
 
 function paraLinhaTurma(institucaoId, t) {
@@ -51,6 +57,14 @@ function paraLinhaTurma(institucaoId, t) {
     instituicao_id: institucaoId, id: t.id, nome: t.nome, categoria: t.categoria,
     idade_min: Number(t.idadeMin), idade_max: Number(t.idadeMax), status: t.status,
     atestado: !!t.atestado, historico: !!t.historico,
+    tipo_atividade: t.tipoAtividade === 'pontual' ? 'pontual' : 'continua',
+    data_evento: t.tipoAtividade === 'pontual' && t.dataEvento ? t.dataEvento : null,
+    hora_inicio: t.tipoAtividade === 'pontual' && t.horaInicio ? t.horaInicio : null,
+    hora_fim: t.tipoAtividade === 'pontual' && t.horaFim ? t.horaFim : null,
+    endereco: t.endereco || '', bairro: t.bairro || '',
+    latitude: typeof t.latitude === 'number' ? t.latitude : null,
+    longitude: typeof t.longitude === 'number' ? t.longitude : null,
+    precisao_localizacao: t.precisaoLocalizacao || null,
   };
 }
 
@@ -147,16 +161,30 @@ export function construirDocumentos({ atestado = false, historico = false } = {}
 // --------------------------------------------------- atividades (busca) --
 /** Atividades de instituições APROVADAS, no formato "achatado" que a busca dos pais usa. Não precisa de login. */
 export async function carregarAtividades() {
+  const hoje = hojeISO();
   const linhas = dados(await supabase.from('instituicoes').select('*, turmas(*)').eq('status', 'aprovada').order('nome'));
   return linhas.flatMap((r) => {
     const inst = deLinha(r);
-    return (r.turmas || []).map((linhaTurma) => {
-      const t = deLinhaTurma(linhaTurma);
-      return {
-        id: `${inst.id}::${t.id}`, nome: t.nome, instituicao: inst.nome, tipo: inst.tipo, categoria: t.categoria,
-        idadeMin: t.idadeMin, idadeMax: t.idadeMax, bairro: inst.bairro, endereco: inst.endereco, status: t.status,
-        whatsapp: inst.whatsapp, latitude: inst.latitude, longitude: inst.longitude, documentos: construirDocumentos(t),
-      };
-    });
+    return (r.turmas || [])
+      .map(deLinhaTurma)
+      .filter((t) => !eventoJaPassou(t, hoje)) // evento de um dia que já aconteceu não aparece na busca
+      .map((t) => {
+        // Endereço da atividade: o próprio da turma, se foi informado; senão, o da instituição.
+        const enderecoProprio = !!(t.endereco.trim() || t.bairro.trim());
+        return {
+          id: `${inst.id}::${t.id}`, nome: t.nome, instituicao: inst.nome, tipo: inst.tipo, categoria: t.categoria,
+          idadeMin: t.idadeMin, idadeMax: t.idadeMax,
+          bairro: enderecoProprio ? t.bairro : inst.bairro,
+          endereco: enderecoProprio ? t.endereco : inst.endereco,
+          status: t.status, whatsapp: inst.whatsapp,
+          // A posição no mapa acompanha o endereço. Se o endereço da atividade não foi localizado,
+          // fica sem pino (em vez de apontar para a sede da instituição, que é outro lugar).
+          latitude: enderecoProprio ? t.latitude : inst.latitude,
+          longitude: enderecoProprio ? t.longitude : inst.longitude,
+          tipoAtividade: t.tipoAtividade, dataEvento: t.dataEvento, horaInicio: t.horaInicio, horaFim: t.horaFim,
+          // evento de um dia não tem checklist de matrícula
+          documentos: t.tipoAtividade === 'pontual' ? [] : construirDocumentos(t),
+        };
+      });
   });
 }

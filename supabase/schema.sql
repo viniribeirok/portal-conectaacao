@@ -39,11 +39,21 @@ create table if not exists public.turmas (
   id             text not null,
   nome           text not null,
   categoria      text not null check (categoria in ('Esportes','Dança','Artes Marciais','Cultura','Reforço Escolar')),
-  idade_min      int  not null check (idade_min between 0 and 18),
-  idade_max      int  not null check (idade_max between 0 and 18 and idade_max >= idade_min),
+  idade_min      int  not null check (idade_min between 0 and 99),
+  idade_max      int  not null check (idade_max between 0 and 99 and idade_max >= idade_min),
   status         text not null default 'Abertas' check (status in ('Abertas','Fila de Espera','Encerradas')),
   atestado       boolean not null default false,
   historico      boolean not null default false,
+  tipo_atividade text not null default 'continua' check (tipo_atividade in ('continua','pontual')),  -- continua = turma regular; pontual = evento de um dia
+  data_evento    date,
+  hora_inicio    text check (hora_inicio is null or hora_inicio ~ '^[0-2][0-9]:[0-5][0-9]$'),
+  hora_fim       text check (hora_fim is null or hora_fim ~ '^[0-2][0-9]:[0-5][0-9]$'),
+  endereco       text not null default '',   -- onde a atividade acontece (vazio = usa o endereço da instituição)
+  bairro         text not null default '',
+  latitude       double precision,
+  longitude      double precision,
+  precisao_localizacao text,
+  constraint turmas_evento_data check (tipo_atividade <> 'pontual' or data_evento is not null),
   primary key (instituicao_id, id)
 );
 

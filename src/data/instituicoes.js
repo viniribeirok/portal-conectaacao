@@ -75,4 +75,4 @@ export const SIGLA_TIPO = {
   'Outro': 'O',
 };
 
-export const FORM_VAZIO = { nome: '', categoria: 'Esportes', idadeMin: 6, idadeMax: 12, status: 'Abertas', atestado: false, historico: false, institucaoId: INSTITUICOES_SEED[0].id };
+export const FORM_VAZIO = { nome: '', categoria: 'Esportes', idadeMin: 6, idadeMax: 12, status: 'Abertas', atestado: false, historico: false, tipoAtividade: 'continua', dataEvento: '', horaInicio: '', horaFim: '', endereco: '', bairro: '', institucaoId: INSTITUICOES_SEED[0].id };

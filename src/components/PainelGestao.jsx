@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import {
   MapPin, Plus, Pencil, Trash2, X, LogOut, ShieldCheck, Building2, ArrowLeft, Eye, EyeOff,
-  Upload, FileText, Check, Mail, Clock, Inbox, Save,
+  Upload, FileText, Check, Mail, Clock, Inbox, Save, CalendarDays,
 } from 'lucide-react';
 import { TIPOS_INSTITUICAO, FORM_VAZIO } from '../data/instituicoes';
 import { CATEGORIAS_FORM, STATUS_OPCOES, STATUS_COR_MAP, ICONE_CATEGORIA } from '../data/atividades';
@@ -12,6 +12,7 @@ import {
   instituicaoAprovada, atualizarStatusInstituicao, instituicaoTemCoordenadas,
 } from '../data/repositorio';
 import { geocodificarEndereco } from '../lib/geocodificacao';
+import { formatarQuando, eventoJaPassou } from '../utils/eventos';
 import { supabase } from '../lib/supabase';
 import { enviarEmailSimulado, carregarEmailsEnviados } from '../lib/email';
 import { storage } from '../lib/storage';
@@ -23,6 +24,15 @@ function lerArquivoComoBase64(arquivo) {
     leitor.onerror = reject;
     leitor.readAsDataURL(arquivo);
   });
+}
+
+// Traduz os erros mais comuns do banco para algo que dê pra entender e agir.
+function explicarErroSalvar(e) {
+  const m = (e && e.message) || '';
+  if (/idade_m(in|ax)|idades_check/i.test(m)) return 'as idades precisam estar entre 0 e 99 anos, e a máxima não pode ser menor que a mínima';
+  if (/column .* does not exist|schema cache/i.test(m)) return 'o banco ainda não tem as colunas novas — rode o SQL de migração no Supabase e espere 1 minuto';
+  if (/row-level security|permission denied/i.test(m)) return 'sua conta não tem permissão para essa alteração';
+  return m || 'erro desconhecido';
 }
 
 const FORM_INSTITUICAO_VAZIO = { nome: '', tipo: 'ONG', whatsapp: '', endereco: '', bairro: '', cep: '' };
@@ -391,6 +401,7 @@ export default function PainelGestao({ voltar }) {
   const [erroForm, setErroForm] = useState('');
   const [removendo, setRemovendo] = useState(null);
   const [erroStorage, setErroStorage] = useState(false);
+  const [salvandoTurma, setSalvandoTurma] = useState(false);
 
   async function garantirCarregado(institucaoId) {
     if (turmasPorInstituicao[institucaoId]) return;
@@ -421,32 +432,75 @@ export default function PainelGestao({ voltar }) {
 
   async function persistirInstituicao(institucaoId, novaLista) {
     setTurmasPorInstituicao((prev) => ({ ...prev, [institucaoId]: novaLista }));
-    try { await salvarTurmasDaInstituicao(institucaoId, novaLista); setErroStorage(false); } catch (e) { setErroStorage(true); }
+    try {
+      await salvarTurmasDaInstituicao(institucaoId, novaLista);
+      setErroStorage(false);
+    } catch (e) {
+      console.error(e);
+      setErroStorage(explicarErroSalvar(e));
+      // volta a tela para o que realmente está salvo, pra não ficar uma turma "fantasma"
+      try {
+        const salvas = await carregarTurmasDaInstituicao(institucaoId);
+        setTurmasPorInstituicao((prev) => ({ ...prev, [institucaoId]: salvas }));
+      } catch (e2) { /* sem conexão: mantém o que está na tela */ }
+    }
   }
 
   function institucaoAlvoPadrao() { return usuario.papel === 'ong' ? usuario.instituicaoId : (modoTodas ? instituicoesAprovadas[0]?.id : institucaoAtualId); }
 
   function abrirNovaTurma() { setFormData({ ...FORM_VAZIO, institucaoId: institucaoAlvoPadrao() }); setEditando(null); setErroForm(''); setFormAberto(true); }
-  function abrirEdicao(t) { setFormData({ nome: t.nome, categoria: t.categoria, idadeMin: t.idadeMin, idadeMax: t.idadeMax, status: t.status, atestado: t.atestado, historico: t.historico, institucaoId: t.institucaoId }); setEditando({ institucaoId: t.institucaoId, id: t.id }); setErroForm(''); setFormAberto(true); }
+  function abrirEdicao(t) { setFormData({ nome: t.nome, categoria: t.categoria, idadeMin: t.idadeMin, idadeMax: t.idadeMax, status: t.status, atestado: t.atestado, historico: t.historico, tipoAtividade: t.tipoAtividade || 'continua', dataEvento: t.dataEvento || '', horaInicio: t.horaInicio || '', horaFim: t.horaFim || '', endereco: t.endereco || '', bairro: t.bairro || '', institucaoId: t.institucaoId }); setEditando({ institucaoId: t.institucaoId, id: t.id }); setErroForm(''); setFormAberto(true); }
   function cancelarForm() { setFormAberto(false); setEditando(null); setErroForm(''); }
 
-  function salvarForm() {
+  async function salvarForm() {
+    if (salvandoTurma) return;
     if (!formData.nome.trim()) { setErroForm('Dá um nome pra turma.'); return; }
+    const idadeMinN = Number(formData.idadeMin), idadeMaxN = Number(formData.idadeMax);
+    if (!Number.isFinite(idadeMinN) || !Number.isFinite(idadeMaxN) || idadeMinN < 0 || idadeMaxN > 99) { setErroForm('As idades precisam estar entre 0 e 99 anos.'); return; }
     if (Number(formData.idadeMin) > Number(formData.idadeMax)) { setErroForm('A idade mínima não pode ser maior que a máxima.'); return; }
-    const alvoId = usuario.papel === 'ong' ? usuario.instituicaoId : formData.institucaoId;
-    const listaAtual = turmasPorInstituicao[alvoId] || [];
-    const { institucaoId, ...campos } = formData;
-    const camposLimpos = { ...campos, idadeMin: Number(formData.idadeMin), idadeMax: Number(formData.idadeMax) };
+    const pontual = formData.tipoAtividade === 'pontual';
+    if (pontual && !formData.dataEvento) { setErroForm('Escolhe a data do evento.'); return; }
+    if (pontual && formData.horaInicio && formData.horaFim && formData.horaFim <= formData.horaInicio) { setErroForm('O horário de término precisa ser depois do início.'); return; }
 
-    if (editando && editando.institucaoId === alvoId) {
-      persistirInstituicao(alvoId, listaAtual.map((t) => (t.id === editando.id ? { ...t, ...camposLimpos } : t)));
-    } else if (editando) {
-      persistirInstituicao(editando.institucaoId, (turmasPorInstituicao[editando.institucaoId] || []).filter((t) => t.id !== editando.id));
-      persistirInstituicao(alvoId, [...listaAtual, { id: editando.id, ...camposLimpos }]);
-    } else {
-      persistirInstituicao(alvoId, [...listaAtual, { id: `t-${Date.now()}`, ...camposLimpos }]);
+    setErroForm(''); setAvisoInst(''); setSalvandoTurma(true);
+    try {
+      const alvoId = usuario.papel === 'ong' ? usuario.instituicaoId : formData.institucaoId;
+      const listaAtual = turmasPorInstituicao[alvoId] || [];
+      const { institucaoId, ...campos } = formData;
+      const camposLimpos = {
+        ...campos, idadeMin: Number(formData.idadeMin), idadeMax: Number(formData.idadeMax),
+        dataEvento: pontual ? campos.dataEvento : '', horaInicio: pontual ? campos.horaInicio : '', horaFim: pontual ? campos.horaFim : '',
+        endereco: (campos.endereco || '').trim(), bairro: (campos.bairro || '').trim(),
+      };
+
+      // Endereço da atividade: se foi preenchido, localiza no mapa; em branco = usa o endereço da instituição.
+      const anterior = editando ? (turmasPorInstituicao[editando.institucaoId] || []).find((t) => t.id === editando.id) : null;
+      const temEndereco = !!(camposLimpos.endereco || camposLimpos.bairro);
+      const enderecoMudou = !anterior || (anterior.endereco || '') !== camposLimpos.endereco || (anterior.bairro || '') !== camposLimpos.bairro;
+      if (!temEndereco) {
+        Object.assign(camposLimpos, camposDeLocalizacao(null));
+      } else if (enderecoMudou || typeof anterior?.latitude !== 'number') {
+        const geo = await geocodificarEndereco(camposLimpos);
+        Object.assign(camposLimpos, camposDeLocalizacao(geo));
+        setAvisoInst(`Endereço da atividade: ${mensagemLocalizacao(geo)}`);
+      } else {
+        camposLimpos.latitude = anterior.latitude;
+        camposLimpos.longitude = anterior.longitude;
+        camposLimpos.precisaoLocalizacao = anterior.precisaoLocalizacao;
+      }
+
+      if (editando && editando.institucaoId === alvoId) {
+        await persistirInstituicao(alvoId, listaAtual.map((t) => (t.id === editando.id ? { ...t, ...camposLimpos } : t)));
+      } else if (editando) {
+        await persistirInstituicao(editando.institucaoId, (turmasPorInstituicao[editando.institucaoId] || []).filter((t) => t.id !== editando.id));
+        await persistirInstituicao(alvoId, [...listaAtual, { id: editando.id, ...camposLimpos }]);
+      } else {
+        await persistirInstituicao(alvoId, [...listaAtual, { id: `t-${Date.now()}`, ...camposLimpos }]);
+      }
+      setFormAberto(false); setEditando(null);
+    } finally {
+      setSalvandoTurma(false);
     }
-    setFormAberto(false); setEditando(null);
   }
 
   function confirmarRemocao(t) { persistirInstituicao(t.institucaoId, (turmasPorInstituicao[t.institucaoId] || []).filter((x) => x.id !== t.id)); setRemovendo(null); }
@@ -562,6 +616,12 @@ export default function PainelGestao({ voltar }) {
     .pn-tag-aviso { background:rgba(232,162,59,0.18); color:#8a5a00; font-weight:600; }
     .pn-mini-btn:disabled, .pn-btn:disabled { opacity:0.55; cursor:default; }
     button.pn-doc-link { border:none; background:transparent; cursor:pointer; font-family:inherit; padding:0; }
+    .pn-campo .pn-radios { display:flex; gap:8px; flex-wrap:wrap; }
+    .pn-campo .pn-radio { position:relative; flex:1; min-width:140px; display:flex; flex-direction:column; align-items:flex-start; gap:3px; border:1px solid rgba(27,58,43,0.18); border-radius:9px; padding:10px 12px; margin:0; font-size:14px; font-weight:600; line-height:1.3; color:var(--ink); cursor:pointer; background:#fff; }
+    .pn-campo .pn-radio.ativo { border-color:var(--ink); background:rgba(27,58,43,0.06); }
+    .pn-campo .pn-radio input { position:absolute; opacity:0; pointer-events:none; width:0; height:0; padding:0; border:0; }
+    .pn-campo .pn-radio small { display:block; color:var(--muted); font-size:12px; font-weight:400; }
+    .pn-tag-evento { background:rgba(37,99,235,0.12); color:#1d4ed8; font-weight:600; display:inline-flex; align-items:center; gap:4px; }
 
     /* ---- Desktop: painel usa a largura da tela, login fica num cartão centralizado ---- */
     @media (min-width: 860px) {
@@ -846,22 +906,45 @@ export default function PainelGestao({ voltar }) {
             <div className="pn-campo"><label>Instituição</label><select value={formData.institucaoId} onChange={(e) => setFormData({ ...formData, institucaoId: e.target.value })}>{instituicoesAprovadas.map((i) => <option key={i.id} value={i.id}>{i.nome}</option>)}</select></div>
           )}
           <div className="pn-campo"><label>Nome da atividade</label><input type="text" value={formData.nome} onChange={(e) => setFormData({ ...formData, nome: e.target.value })} placeholder="Ex: Judô, Balé Infantil..." /></div>
+          <div className="pn-campo">
+            <label>Tipo de atividade</label>
+            <div className="pn-radios">
+              <label className={`pn-radio ${formData.tipoAtividade !== 'pontual' ? 'ativo' : ''}`}><input type="radio" name="tipoAtividade" checked={formData.tipoAtividade !== 'pontual'} onChange={() => setFormData({ ...formData, tipoAtividade: 'continua' })} />Contínua<small>turma regular, com vagas</small></label>
+              <label className={`pn-radio ${formData.tipoAtividade === 'pontual' ? 'ativo' : ''}`}><input type="radio" name="tipoAtividade" checked={formData.tipoAtividade === 'pontual'} onChange={() => setFormData({ ...formData, tipoAtividade: 'pontual' })} />Evento de um dia<small>data específica</small></label>
+            </div>
+          </div>
+          {formData.tipoAtividade === 'pontual' && (
+            <>
+              <div className="pn-campo"><label>Data do evento</label><input type="date" value={formData.dataEvento} onChange={(e) => setFormData({ ...formData, dataEvento: e.target.value })} /></div>
+              <div className="pn-campo-dupla">
+                <div className="pn-campo"><label>Início (opcional)</label><input type="time" value={formData.horaInicio} onChange={(e) => setFormData({ ...formData, horaInicio: e.target.value })} /></div>
+                <div className="pn-campo"><label>Término (opcional)</label><input type="time" value={formData.horaFim} onChange={(e) => setFormData({ ...formData, horaFim: e.target.value })} /></div>
+              </div>
+            </>
+          )}
           <div className="pn-campo"><label>Categoria</label><select value={formData.categoria} onChange={(e) => setFormData({ ...formData, categoria: e.target.value })}>{CATEGORIAS_FORM.map((c) => <option key={c} value={c}>{c}</option>)}</select></div>
           <div className="pn-campo-dupla">
-            <div className="pn-campo"><label>Idade mínima</label><input type="number" min="0" max="18" value={formData.idadeMin} onChange={(e) => setFormData({ ...formData, idadeMin: e.target.value })} /></div>
-            <div className="pn-campo"><label>Idade máxima</label><input type="number" min="0" max="18" value={formData.idadeMax} onChange={(e) => setFormData({ ...formData, idadeMax: e.target.value })} /></div>
+            <div className="pn-campo"><label>Idade mínima</label><input type="number" min="0" max="99" value={formData.idadeMin} onChange={(e) => setFormData({ ...formData, idadeMin: e.target.value })} /></div>
+            <div className="pn-campo"><label>Idade máxima</label><input type="number" min="0" max="99" value={formData.idadeMax} onChange={(e) => setFormData({ ...formData, idadeMax: e.target.value })} /></div>
           </div>
           <div className="pn-campo"><label>Status das vagas</label><select value={formData.status} onChange={(e) => setFormData({ ...formData, status: e.target.value })}>{STATUS_OPCOES.map((s) => <option key={s} value={s}>{s}</option>)}</select></div>
+          <div className="pn-campo-dupla">
+            <div className="pn-campo"><label>Onde acontece (opcional)</label><input type="text" value={formData.endereco} onChange={(e) => setFormData({ ...formData, endereco: e.target.value })} placeholder="Rua e número" /></div>
+            <div className="pn-campo"><label>Bairro (opcional)</label><input type="text" value={formData.bairro} onChange={(e) => setFormData({ ...formData, bairro: e.target.value })} /></div>
+          </div>
+          <p className="pn-nota-analise">Se preencher, o endereço da atividade é localizado no mapa. Em branco, a atividade usa o endereço da instituição.</p>
+          {formData.tipoAtividade !== 'pontual' && (
           <div className="pn-checks">
             <label><input type="checkbox" checked={formData.atestado} onChange={(e) => setFormData({ ...formData, atestado: e.target.checked })} /> Exige atestado médico</label>
             <label><input type="checkbox" checked={formData.historico} onChange={(e) => setFormData({ ...formData, historico: e.target.checked })} /> Exige histórico escolar</label>
           </div>
+          )}
           {erroForm && <p className="pn-erro-form">{erroForm}</p>}
-          <div className="pn-form-acoes"><button className="pn-btn primario" onClick={salvarForm}>Salvar turma</button><button className="pn-btn secundario" onClick={cancelarForm}>Cancelar</button></div>
+          <div className="pn-form-acoes"><button className="pn-btn primario" onClick={salvarForm} disabled={salvandoTurma}>{salvandoTurma ? 'Salvando…' : 'Salvar turma'}</button><button className="pn-btn secundario" onClick={cancelarForm}>Cancelar</button></div>
         </div>
       )}
 
-      {erroStorage && <p className="pn-aviso-storage">Não deu pra salvar agora — as mudanças podem se perder se a página recarregar.</p>}
+      {erroStorage && <p className="pn-aviso-storage">Não deu pra salvar: {typeof erroStorage === 'string' ? erroStorage : 'erro desconhecido'}.</p>}
 
       {carregandoTurmas ? (
         <p className="pn-carregando">Carregando turmas…</p>
@@ -878,9 +961,12 @@ export default function PainelGestao({ voltar }) {
                 <div className="pn-linha-top"><Icone size={16} className="icone-cat" /><h3>{t.nome}</h3></div>
                 <div className="pn-linha-tags">
                   <span className="pn-tag">{t.categoria}</span><span className="pn-tag">{t.idadeMin} a {t.idadeMax} anos</span>
+                  {t.tipoAtividade === 'pontual' && <span className="pn-tag pn-tag-evento"><CalendarDays size={11} /> Evento de um dia{t.dataEvento ? ` · ${formatarQuando(t)}` : ''}</span>}
+                  {eventoJaPassou(t) && <span className="pn-tag pn-tag-aviso">Já aconteceu — não aparece na busca</span>}
                   {t.atestado && <span className="pn-tag">Atestado médico</span>}
                   {t.historico && <span className="pn-tag">Histórico escolar</span>}
                 </div>
+                {(t.endereco || t.bairro) && <p className="pn-pendente-info">Local: {[t.endereco, t.bairro].filter(Boolean).join(' — ')}</p>}
                 <div className="pn-status-row">{STATUS_OPCOES.map((s) => <button key={s} className={`pn-status-pill ${t.status === s ? 'ativo' : ''}`} style={t.status === s ? { background: STATUS_COR_MAP[s] } : {}} onClick={() => mudarStatus(t, s)}>{s}</button>)}</div>
                 <div className="pn-linha-acoes">
                   <button className="pn-mini-btn" onClick={() => abrirEdicao(t)}><Pencil size={13} /> Editar</button>

@@ -14,7 +14,7 @@ import { distanciaKm } from './geo';
  *        informado, cada atividade ganha um campo `distanciaKm` e a lista
  *        volta ordenada da mais perto pra mais longe.
  */
-export function filtrarAtividades(atividades, { busca = '', categoria = 'Todas', idade = '', minhaLocalizacao = null } = {}) {
+export function filtrarAtividades(atividades, { busca = '', categoria = 'Todas', idade = '', minhaLocalizacao = null, tipoAtividade = 'todas' } = {}) {
   const termo = busca.trim().toLowerCase();
   const idadeNum = idade === '' ? null : Number(idade);
 
@@ -25,7 +25,8 @@ export function filtrarAtividades(atividades, { busca = '', categoria = 'Todas',
       || a.instituicao.toLowerCase().includes(termo);
     const bateCategoria = categoria === 'Todas' || a.categoria === categoria;
     const bateIdade = idadeNum === null || (idadeNum >= a.idadeMin && idadeNum <= a.idadeMax);
-    return bateBusca && bateCategoria && bateIdade;
+    const bateTipo = tipoAtividade === 'todas' || (a.tipoAtividade || 'continua') === tipoAtividade;
+    return bateBusca && bateCategoria && bateIdade && bateTipo;
   });
 
   if (minhaLocalizacao) {

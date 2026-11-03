@@ -3,13 +3,14 @@ import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import {
-  Search, MapPin, List, Map as MapIcon, MessageCircle, X, Printer, ArrowLeft, Navigation,
+  Search, MapPin, List, Map as MapIcon, MessageCircle, X, Printer, ArrowLeft, Navigation, CalendarDays,
 } from 'lucide-react';
 import { CATEGORIAS, ICONE_CATEGORIA, STATUS_INFO } from '../data/atividades';
 import { SIGLA_TIPO } from '../data/instituicoes';
 import { carregarAtividades } from '../data/repositorio';
 import { filtrarAtividades } from '../utils/filtros';
 import { formatarDistancia } from '../utils/geo';
+import { formatarQuando } from '../utils/eventos';
 import { storage } from '../lib/storage';
 
 // ---------------------------------------------------------------------------
@@ -59,6 +60,7 @@ export default function Portal({ voltar }) {
   const [busca, setBusca] = useState('');
   const [categoria, setCategoria] = useState('Todas');
   const [idade, setIdade] = useState('');
+  const [tipoAtividade, setTipoAtividade] = useState('todas');
   const [view, setView] = useState('lista');
   const [selecionadaId, setSelecionadaId] = useState(null);
   const [marcadosDocs, setMarcadosDocs] = useState({});
@@ -97,8 +99,8 @@ export default function Portal({ voltar }) {
   function limparLocalizacao() { setMinhaLocalizacao(null); setErroLocalizacao(''); }
 
   const resultados = useMemo(
-    () => filtrarAtividades(atividades, { busca, categoria, idade, minhaLocalizacao }),
-    [atividades, busca, categoria, idade, minhaLocalizacao]
+    () => filtrarAtividades(atividades, { busca, categoria, idade, minhaLocalizacao, tipoAtividade }),
+    [atividades, busca, categoria, idade, minhaLocalizacao, tipoAtividade]
   );
 
   const atividadeSelecionada = atividades.find((a) => a.id === selecionadaId) || null;
@@ -141,7 +143,7 @@ export default function Portal({ voltar }) {
     return `https://wa.me/${a.whatsapp}?text=${encodeURIComponent(msg)}`;
   }
 
-  function limparFiltros() { setBusca(''); setCategoria('Todas'); setIdade(''); }
+  function limparFiltros() { setBusca(''); setCategoria('Todas'); setIdade(''); setTipoAtividade('todas'); }
   const hoje = new Date().toLocaleDateString('pt-BR');
 
   return (
@@ -196,6 +198,10 @@ export default function Portal({ voltar }) {
         .pt-tag svg { width:13px; height:13px; }
         .pt-endereco { display:flex; align-items:center; gap:5px; font-size:12.5px; color:var(--muted); margin:0 0 12px; }
         .pt-endereco svg { width:13px; height:13px; flex-shrink:0; }
+        .pt-quando { display:flex; align-items:center; gap:5px; font-size:13px; font-weight:600; color:var(--ink); margin:0 0 6px; }
+        .pt-quando svg { width:13px; height:13px; flex-shrink:0; }
+        .pt-tag-evento { background:rgba(37,99,235,0.12); color:#1d4ed8; font-weight:600; }
+        .pt-filtros-linha2 { display:flex; flex-wrap:wrap; gap:8px 18px; }
         .pt-cta { display:flex; align-items:center; justify-content:center; gap:7px; width:100%; border:none; border-radius:8px; padding:11px 0; font-family:inherit; font-size:14px; font-weight:600; color:#fff; background:var(--coral); text-decoration:none; cursor:pointer; }
         .pt-card.encerrada .pt-cta { background:var(--muted); }
         .pt-vazio { text-align:center; padding:48px 24px; color:var(--muted); background:var(--card); border-radius:10px; border:1px dashed rgba(27,58,43,0.2); }
@@ -291,6 +297,13 @@ export default function Portal({ voltar }) {
               {Array.from({ length: 18 }, (_, i) => i).map((n) => <option key={n} value={n}>{n} anos</option>)}
             </select>
           </label>
+          <label className="pt-idade">Tipo
+            <select value={tipoAtividade} onChange={(e) => setTipoAtividade(e.target.value)}>
+              <option value="todas">todas</option>
+              <option value="continua">contínuas</option>
+              <option value="pontual">eventos de um dia</option>
+            </select>
+          </label>
         </div>
 
         <div className="pt-toggle-wrap">
@@ -322,8 +335,9 @@ export default function Portal({ voltar }) {
                         <div className="pt-status" style={{ '--status-cor': st.cor }}><span className="dot" />{st.texto}</div>
                       </div>
                       {a.distanciaKm !== undefined && <p className="pt-distancia"><Navigation size={11} /> {formatarDistancia(a.distanciaKm)} de você</p>}
-                      <div className="pt-tags"><span className="pt-tag"><Icone size={13} /> {a.categoria}</span><span className="pt-tag">{a.idadeMin} a {a.idadeMax} anos</span></div>
-                      <p className="pt-endereco"><MapPin size={13} /> {a.endereco} — {a.bairro}</p>
+                      <div className="pt-tags"><span className="pt-tag"><Icone size={13} /> {a.categoria}</span><span className="pt-tag">{a.idadeMin} a {a.idadeMax} anos</span>{a.tipoAtividade === 'pontual' && <span className="pt-tag pt-tag-evento">Evento de um dia</span>}</div>
+                      {a.tipoAtividade === 'pontual' && a.dataEvento && <p className="pt-quando"><CalendarDays size={13} /> {formatarQuando(a)}</p>}
+                      <p className="pt-endereco"><MapPin size={13} /> {[a.endereco, a.bairro].filter(Boolean).join(' — ')}</p>
                       <a className="pt-cta" href={linkWhatsapp(a)} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}><MessageCircle size={15} /> {st.cta}</a>
                     </div>
                   );
@@ -399,10 +413,15 @@ export default function Portal({ voltar }) {
               <div><h2>{atividadeSelecionada.nome}</h2><p className="pt-instituicao">{atividadeSelecionada.instituicao}</p></div>
               <button onClick={() => setSelecionadaId(null)} aria-label="Fechar"><X size={18} /></button>
             </div>
-            <div className="pt-tags"><span className="pt-tag">{atividadeSelecionada.categoria}</span><span className="pt-tag">{atividadeSelecionada.idadeMin} a {atividadeSelecionada.idadeMax} anos</span></div>
-            <p className="pt-endereco"><MapPin size={13} /> {atividadeSelecionada.endereco} — {atividadeSelecionada.bairro}</p>
+            <div className="pt-tags"><span className="pt-tag">{atividadeSelecionada.categoria}</span><span className="pt-tag">{atividadeSelecionada.idadeMin} a {atividadeSelecionada.idadeMax} anos</span>{atividadeSelecionada.tipoAtividade === 'pontual' && <span className="pt-tag pt-tag-evento">Evento de um dia</span>}</div>
+            {atividadeSelecionada.tipoAtividade === 'pontual' && atividadeSelecionada.dataEvento && <p className="pt-quando"><CalendarDays size={13} /> {formatarQuando(atividadeSelecionada)}</p>}
+            <p className="pt-endereco"><MapPin size={13} /> {[atividadeSelecionada.endereco, atividadeSelecionada.bairro].filter(Boolean).join(' — ')}</p>
             <a className="pt-cta" href={linkWhatsapp(atividadeSelecionada)} target="_blank" rel="noopener noreferrer"><MessageCircle size={15} /> {STATUS_INFO[atividadeSelecionada.status].cta}</a>
             <div className="pt-divider" />
+            {atividadeSelecionada.tipoAtividade === 'pontual' ? (
+              <p style={{ fontSize: 13.5, color: 'var(--muted)', lineHeight: 1.5 }}>Este é um evento de um dia, então não há checklist de matrícula. Chame a instituição pelo WhatsApp para confirmar se precisa de inscrição ou de algum documento.</p>
+            ) : (
+              <>
             <h3>Documentos para a matrícula</h3>
             {carregandoDocs ? <p style={{ fontSize: 13, color: 'var(--muted)' }}>Carregando checklist salvo…</p> : (
               <>
@@ -423,6 +442,8 @@ export default function Portal({ voltar }) {
                 </div>
                 {erroDocs && <p style={{ fontSize: 12, color: 'var(--coral)', marginTop: -6, marginBottom: 12 }}>Não deu pra salvar sua marcação agora.</p>}
                 <button className="pt-btn-print" onClick={() => window.print()}><Printer size={15} /> Salvar / imprimir checklist</button>
+              </>
+            )}
               </>
             )}
             <div className="pt-folha-impressao">
