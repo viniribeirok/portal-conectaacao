@@ -177,6 +177,8 @@ export async function carregarAtividades() {
           bairro: enderecoProprio ? t.bairro : inst.bairro,
           endereco: enderecoProprio ? t.endereco : inst.endereco,
           status: t.status, whatsapp: inst.whatsapp,
+          // endereço da sede da instituição (o da atividade pode ser outro lugar)
+          sedeEndereco: inst.endereco, sedeBairro: inst.bairro,
           // A posição no mapa acompanha o endereço. Se o endereço da atividade não foi localizado,
           // fica sem pino (em vez de apontar para a sede da instituição, que é outro lugar).
           latitude: enderecoProprio ? t.latitude : inst.latitude,

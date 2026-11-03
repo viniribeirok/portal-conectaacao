@@ -3,7 +3,7 @@ import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import {
-  Search, MapPin, List, Map as MapIcon, MessageCircle, X, Printer, ArrowLeft, Navigation, CalendarDays,
+  Search, MapPin, List, Map as MapIcon, MessageCircle, X, Printer, ArrowLeft, Navigation, CalendarDays, ChevronRight, Building2, Phone,
 } from 'lucide-react';
 import { CATEGORIAS, ICONE_CATEGORIA, STATUS_INFO } from '../data/atividades';
 import { SIGLA_TIPO } from '../data/instituicoes';
@@ -12,6 +12,7 @@ import { filtrarAtividades } from '../utils/filtros';
 import { formatarDistancia } from '../utils/geo';
 import { formatarQuando } from '../utils/eventos';
 import { formatarIdades, todasAsIdades } from '../utils/idades';
+import { formatarTelefone } from '../utils/contato';
 import { storage } from '../lib/storage';
 
 // ---------------------------------------------------------------------------
@@ -203,6 +204,13 @@ export default function Portal({ voltar }) {
         .pt-quando svg { width:13px; height:13px; flex-shrink:0; }
         .pt-tag-evento { background:rgba(37,99,235,0.12); color:#1d4ed8; font-weight:600; }
         .pt-tag-todas { background:rgba(232,162,59,0.22); color:#7a4b00; font-weight:600; }
+        .pt-ver-mais { display:flex; align-items:center; justify-content:flex-end; gap:2px; margin:10px 0 0; font-size:13px; font-weight:600; color:var(--ink); }
+        .pt-card:hover .pt-ver-mais { text-decoration:underline; }
+        .pt-inst-dados { display:flex; flex-direction:column; gap:12px; }
+        .pt-inst-linha { display:flex; gap:10px; align-items:flex-start; font-size:14px; color:var(--ink); line-height:1.4; }
+        .pt-inst-linha svg { flex-shrink:0; margin-top:2px; color:var(--muted); }
+        .pt-inst-linha small { display:block; color:var(--muted); font-size:12px; }
+        .pt-inst-tel { color:var(--ink); font-weight:600; text-decoration:underline; }
         .pt-filtros-linha2 { display:flex; flex-wrap:wrap; gap:8px 18px; }
         .pt-cta { display:flex; align-items:center; justify-content:center; gap:7px; width:100%; border:none; border-radius:8px; padding:11px 0; font-family:inherit; font-size:14px; font-weight:600; color:#fff; background:var(--coral); text-decoration:none; cursor:pointer; }
         .pt-card.encerrada .pt-cta { background:var(--muted); }
@@ -340,7 +348,7 @@ export default function Portal({ voltar }) {
                       <div className="pt-tags"><span className="pt-tag"><Icone size={13} /> {a.categoria}</span><span className={`pt-tag ${todasAsIdades(a.idadeMin, a.idadeMax) ? 'pt-tag-todas' : ''}`}>{formatarIdades(a.idadeMin, a.idadeMax)}</span>{a.tipoAtividade === 'pontual' && <span className="pt-tag pt-tag-evento">Evento de um dia</span>}</div>
                       {a.tipoAtividade === 'pontual' && a.dataEvento && <p className="pt-quando"><CalendarDays size={13} /> {formatarQuando(a)}</p>}
                       <p className="pt-endereco"><MapPin size={13} /> {[a.endereco, a.bairro].filter(Boolean).join(' — ')}</p>
-                      <a className="pt-cta" href={linkWhatsapp(a)} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}><MessageCircle size={15} /> {st.cta}</a>
+                      <p className="pt-ver-mais">Ver detalhes e contato <ChevronRight size={15} /></p>
                     </div>
                   );
                 })}
@@ -405,7 +413,7 @@ export default function Portal({ voltar }) {
         )}
       </div>
 
-      <p className="pt-rodape">Portal ConectaAção — dados de exemplo lidos do banco conectaacao.db.</p>
+      <p className="pt-rodape">Portal ConectaAção — atividades cadastradas pelas instituições parceiras.</p>
 
       {atividadeSelecionada && (
         <>
@@ -420,6 +428,22 @@ export default function Portal({ voltar }) {
             <p className="pt-endereco"><MapPin size={13} /> {[atividadeSelecionada.endereco, atividadeSelecionada.bairro].filter(Boolean).join(' — ')}</p>
             <a className="pt-cta" href={linkWhatsapp(atividadeSelecionada)} target="_blank" rel="noopener noreferrer"><MessageCircle size={15} /> {STATUS_INFO[atividadeSelecionada.status].cta}</a>
             <div className="pt-divider" />
+            {(() => {
+              const at = atividadeSelecionada;
+              const local = [at.endereco, at.bairro].filter(Boolean).join(' — ');
+              const sede = [at.sedeEndereco, at.sedeBairro].filter(Boolean).join(' — ');
+              return (
+                <>
+                  <h3>Sobre a instituição</h3>
+                  <div className="pt-inst-dados">
+                    <div className="pt-inst-linha"><Building2 size={15} /><div><strong>{at.instituicao}</strong><small>{at.tipo}</small></div></div>
+                    {sede && sede !== local && <div className="pt-inst-linha"><MapPin size={15} /><div><small>Sede</small><span>{sede}</span></div></div>}
+                    {at.whatsapp && <div className="pt-inst-linha"><Phone size={15} /><div><small>WhatsApp</small><a className="pt-inst-tel" href={linkWhatsapp(at)} target="_blank" rel="noopener noreferrer">{formatarTelefone(at.whatsapp)}</a></div></div>}
+                  </div>
+                  <div className="pt-divider" />
+                </>
+              );
+            })()}
             {atividadeSelecionada.tipoAtividade === 'pontual' ? (
               <p style={{ fontSize: 13.5, color: 'var(--muted)', lineHeight: 1.5 }}>Este é um evento de um dia, então não há checklist de matrícula. Chame a instituição pelo WhatsApp para confirmar se precisa de inscrição ou de algum documento.</p>
             ) : (
