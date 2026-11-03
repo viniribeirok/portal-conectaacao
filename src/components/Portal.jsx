@@ -11,6 +11,7 @@ import { carregarAtividades } from '../data/repositorio';
 import { filtrarAtividades } from '../utils/filtros';
 import { formatarDistancia } from '../utils/geo';
 import { formatarQuando } from '../utils/eventos';
+import { formatarIdades, todasAsIdades } from '../utils/idades';
 import { storage } from '../lib/storage';
 
 // ---------------------------------------------------------------------------
@@ -201,6 +202,7 @@ export default function Portal({ voltar }) {
         .pt-quando { display:flex; align-items:center; gap:5px; font-size:13px; font-weight:600; color:var(--ink); margin:0 0 6px; }
         .pt-quando svg { width:13px; height:13px; flex-shrink:0; }
         .pt-tag-evento { background:rgba(37,99,235,0.12); color:#1d4ed8; font-weight:600; }
+        .pt-tag-todas { background:rgba(232,162,59,0.22); color:#7a4b00; font-weight:600; }
         .pt-filtros-linha2 { display:flex; flex-wrap:wrap; gap:8px 18px; }
         .pt-cta { display:flex; align-items:center; justify-content:center; gap:7px; width:100%; border:none; border-radius:8px; padding:11px 0; font-family:inherit; font-size:14px; font-weight:600; color:#fff; background:var(--coral); text-decoration:none; cursor:pointer; }
         .pt-card.encerrada .pt-cta { background:var(--muted); }
@@ -335,7 +337,7 @@ export default function Portal({ voltar }) {
                         <div className="pt-status" style={{ '--status-cor': st.cor }}><span className="dot" />{st.texto}</div>
                       </div>
                       {a.distanciaKm !== undefined && <p className="pt-distancia"><Navigation size={11} /> {formatarDistancia(a.distanciaKm)} de você</p>}
-                      <div className="pt-tags"><span className="pt-tag"><Icone size={13} /> {a.categoria}</span><span className="pt-tag">{a.idadeMin} a {a.idadeMax} anos</span>{a.tipoAtividade === 'pontual' && <span className="pt-tag pt-tag-evento">Evento de um dia</span>}</div>
+                      <div className="pt-tags"><span className="pt-tag"><Icone size={13} /> {a.categoria}</span><span className={`pt-tag ${todasAsIdades(a.idadeMin, a.idadeMax) ? 'pt-tag-todas' : ''}`}>{formatarIdades(a.idadeMin, a.idadeMax)}</span>{a.tipoAtividade === 'pontual' && <span className="pt-tag pt-tag-evento">Evento de um dia</span>}</div>
                       {a.tipoAtividade === 'pontual' && a.dataEvento && <p className="pt-quando"><CalendarDays size={13} /> {formatarQuando(a)}</p>}
                       <p className="pt-endereco"><MapPin size={13} /> {[a.endereco, a.bairro].filter(Boolean).join(' — ')}</p>
                       <a className="pt-cta" href={linkWhatsapp(a)} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}><MessageCircle size={15} /> {st.cta}</a>
@@ -413,7 +415,7 @@ export default function Portal({ voltar }) {
               <div><h2>{atividadeSelecionada.nome}</h2><p className="pt-instituicao">{atividadeSelecionada.instituicao}</p></div>
               <button onClick={() => setSelecionadaId(null)} aria-label="Fechar"><X size={18} /></button>
             </div>
-            <div className="pt-tags"><span className="pt-tag">{atividadeSelecionada.categoria}</span><span className="pt-tag">{atividadeSelecionada.idadeMin} a {atividadeSelecionada.idadeMax} anos</span>{atividadeSelecionada.tipoAtividade === 'pontual' && <span className="pt-tag pt-tag-evento">Evento de um dia</span>}</div>
+            <div className="pt-tags"><span className="pt-tag">{atividadeSelecionada.categoria}</span><span className={`pt-tag ${todasAsIdades(atividadeSelecionada.idadeMin, atividadeSelecionada.idadeMax) ? 'pt-tag-todas' : ''}`}>{formatarIdades(atividadeSelecionada.idadeMin, atividadeSelecionada.idadeMax)}</span>{atividadeSelecionada.tipoAtividade === 'pontual' && <span className="pt-tag pt-tag-evento">Evento de um dia</span>}</div>
             {atividadeSelecionada.tipoAtividade === 'pontual' && atividadeSelecionada.dataEvento && <p className="pt-quando"><CalendarDays size={13} /> {formatarQuando(atividadeSelecionada)}</p>}
             <p className="pt-endereco"><MapPin size={13} /> {[atividadeSelecionada.endereco, atividadeSelecionada.bairro].filter(Boolean).join(' — ')}</p>
             <a className="pt-cta" href={linkWhatsapp(atividadeSelecionada)} target="_blank" rel="noopener noreferrer"><MessageCircle size={15} /> {STATUS_INFO[atividadeSelecionada.status].cta}</a>

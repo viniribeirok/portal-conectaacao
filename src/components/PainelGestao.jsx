@@ -13,6 +13,7 @@ import {
 } from '../data/repositorio';
 import { geocodificarEndereco } from '../lib/geocodificacao';
 import { formatarQuando, eventoJaPassou } from '../utils/eventos';
+import { formatarIdades } from '../utils/idades';
 import { supabase } from '../lib/supabase';
 import { enviarEmailSimulado, carregarEmailsEnviados } from '../lib/email';
 import { storage } from '../lib/storage';
@@ -402,6 +403,7 @@ export default function PainelGestao({ voltar }) {
   const [removendo, setRemovendo] = useState(null);
   const [erroStorage, setErroStorage] = useState(false);
   const [salvandoTurma, setSalvandoTurma] = useState(false);
+  const todasIdades = Number(formData.idadeMin) <= 0 && Number(formData.idadeMax) >= 99;
 
   async function garantirCarregado(institucaoId) {
     if (turmasPorInstituicao[institucaoId]) return;
@@ -622,6 +624,17 @@ export default function PainelGestao({ voltar }) {
     .pn-campo .pn-radio input { position:absolute; opacity:0; pointer-events:none; width:0; height:0; padding:0; border:0; }
     .pn-campo .pn-radio small { display:block; color:var(--muted); font-size:12px; font-weight:400; }
     .pn-tag-evento { background:rgba(37,99,235,0.12); color:#1d4ed8; font-weight:600; display:inline-flex; align-items:center; gap:4px; }
+
+    /* ---- formulários (turma, instituição e cadastro): texto preto, pra ler melhor ---- */
+    .pn-form, .pn-login-card { color:#111; }
+    .pn-form h3, .pn-login-card h2 { color:#111; }
+    .pn-form .pn-campo label, .pn-login-card .pn-campo label { color:#1f1f1f; font-weight:600; }
+    .pn-form .pn-campo input, .pn-form .pn-campo select, .pn-login-card .pn-campo input, .pn-login-card .pn-campo select { color:#000; }
+    .pn-form .pn-campo input::placeholder, .pn-login-card .pn-campo input::placeholder { color:#6b6b6b; }
+    .pn-form .pn-checks label { color:#111; }
+    .pn-form .pn-radio { color:#111; }
+    .pn-form .pn-radio small { color:#4a4a4a; }
+    .pn-form .pn-nota-analise, .pn-login-card .pn-nota-analise, .pn-login-card .desc { color:#333; }
 
     /* ---- Desktop: painel usa a largura da tela, login fica num cartão centralizado ---- */
     @media (min-width: 860px) {
@@ -923,10 +936,15 @@ export default function PainelGestao({ voltar }) {
             </>
           )}
           <div className="pn-campo"><label>Categoria</label><select value={formData.categoria} onChange={(e) => setFormData({ ...formData, categoria: e.target.value })}>{CATEGORIAS_FORM.map((c) => <option key={c} value={c}>{c}</option>)}</select></div>
+          <div className="pn-checks">
+            <label><input type="checkbox" checked={todasIdades} onChange={(e) => setFormData({ ...formData, idadeMin: e.target.checked ? 0 : 6, idadeMax: e.target.checked ? 99 : 12 })} /> Para todas as idades</label>
+          </div>
+          {!todasIdades && (
           <div className="pn-campo-dupla">
             <div className="pn-campo"><label>Idade mínima</label><input type="number" min="0" max="99" value={formData.idadeMin} onChange={(e) => setFormData({ ...formData, idadeMin: e.target.value })} /></div>
             <div className="pn-campo"><label>Idade máxima</label><input type="number" min="0" max="99" value={formData.idadeMax} onChange={(e) => setFormData({ ...formData, idadeMax: e.target.value })} /></div>
           </div>
+          )}
           <div className="pn-campo"><label>Status das vagas</label><select value={formData.status} onChange={(e) => setFormData({ ...formData, status: e.target.value })}>{STATUS_OPCOES.map((s) => <option key={s} value={s}>{s}</option>)}</select></div>
           <div className="pn-campo-dupla">
             <div className="pn-campo"><label>Onde acontece (opcional)</label><input type="text" value={formData.endereco} onChange={(e) => setFormData({ ...formData, endereco: e.target.value })} placeholder="Rua e número" /></div>
@@ -960,7 +978,7 @@ export default function PainelGestao({ voltar }) {
                 {modoTodas && <div className="pn-linha-inst"><Building2 size={12} /> {nomeInstituicao(t.institucaoId)}</div>}
                 <div className="pn-linha-top"><Icone size={16} className="icone-cat" /><h3>{t.nome}</h3></div>
                 <div className="pn-linha-tags">
-                  <span className="pn-tag">{t.categoria}</span><span className="pn-tag">{t.idadeMin} a {t.idadeMax} anos</span>
+                  <span className="pn-tag">{t.categoria}</span><span className="pn-tag">{formatarIdades(t.idadeMin, t.idadeMax)}</span>
                   {t.tipoAtividade === 'pontual' && <span className="pn-tag pn-tag-evento"><CalendarDays size={11} /> Evento de um dia{t.dataEvento ? ` · ${formatarQuando(t)}` : ''}</span>}
                   {eventoJaPassou(t) && <span className="pn-tag pn-tag-aviso">Já aconteceu — não aparece na busca</span>}
                   {t.atestado && <span className="pn-tag">Atestado médico</span>}
