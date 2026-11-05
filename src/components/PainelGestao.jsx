@@ -14,6 +14,7 @@ import {
 import { geocodificarEndereco } from '../lib/geocodificacao';
 import { formatarQuando, eventoJaPassou } from '../utils/eventos';
 import { formatarIdades } from '../utils/idades';
+import { formatarTelefone, rotuloTelefone, tipoTelefone, normalizarTelefone } from '../utils/contato';
 import { supabase } from '../lib/supabase';
 import { enviarEmailSimulado, carregarEmailsEnviados } from '../lib/email';
 import { storage } from '../lib/storage';
@@ -61,11 +62,11 @@ function FormularioInstituicao({ formInst, setFormInst, editando, formInstEmail,
     <div className="pn-form">
       <div className="pn-form-top">
         <h3>{editando ? 'Editar instituição' : 'Nova instituição'}</h3>
-        <button onClick={onCancelar} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--muted)' }} aria-label="Fechar"><X size={16} /></button>
+        <button onClick={onCancelar} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--texto-suave)' }} aria-label="Fechar"><X size={16} /></button>
       </div>
       <div className="pn-campo"><label>Nome</label><input type="text" value={formInst.nome} onChange={(e) => setFormInst({ ...formInst, nome: e.target.value })} placeholder="Nome da instituição" /></div>
       <div className="pn-campo"><label>Tipo</label><select value={formInst.tipo} onChange={(e) => setFormInst({ ...formInst, tipo: e.target.value })}>{TIPOS_INSTITUICAO.map((t) => <option key={t} value={t}>{t}</option>)}</select></div>
-      <div className="pn-campo"><label>WhatsApp</label><input type="text" value={formInst.whatsapp} onChange={(e) => setFormInst({ ...formInst, whatsapp: e.target.value })} placeholder="Ex: 5511999990000" /></div>
+      <div className="pn-campo"><label>Telefone ou WhatsApp</label><input type="text" value={formInst.whatsapp} onChange={(e) => setFormInst({ ...formInst, whatsapp: e.target.value })} placeholder="Ex: (11) 99999-0000 ou (11) 3333-4444" /><small className="pn-dica">Com DDD. Celular (9 dígitos) vira WhatsApp; número fixo (8 dígitos) vira “ligar”.</small></div>
       <div className="pn-campo"><label>Endereço</label><input type="text" value={formInst.endereco} onChange={(e) => setFormInst({ ...formInst, endereco: e.target.value })} /></div>
       <div className="pn-campo-dupla">
         <div className="pn-campo"><label>Bairro</label><input type="text" value={formInst.bairro} onChange={(e) => setFormInst({ ...formInst, bairro: e.target.value })} /></div>
@@ -80,7 +81,7 @@ function FormularioInstituicao({ formInst, setFormInst, editando, formInstEmail,
   );
 }
 
-export default function PainelGestao({ voltar }) {
+export default function PainelGestao({ voltar, tema = 'claro' }) {
   const [carregandoSessao, setCarregandoSessao] = useState(true);
   const [todasInstituicoes, setTodasInstituicoes] = useState([]);
   const [usuario, setUsuario] = useState(null);
@@ -192,7 +193,7 @@ export default function PainelGestao({ voltar }) {
     if (!reg.email.trim().includes('@')) { setErroAuth('Digita um e-mail válido.'); return; }
     if (reg.senha.length < 6) { setErroAuth('A senha precisa ter pelo menos 6 caracteres.'); return; }
     if (reg.senha !== reg.confirmar) { setErroAuth('As senhas não são iguais.'); return; }
-    if (!reg.whatsapp.trim()) { setErroAuth('Informa um WhatsApp de contato.'); return; }
+    if (tipoTelefone(reg.whatsapp) === 'invalido') { setErroAuth('Informa um telefone de contato com DDD (10 ou 11 números).'); return; }
     if (!arquivoDoc) { setErroAuth('Anexa um documento que comprove a instituição (estatuto, CNPJ, etc.).'); return; }
 
     setErroAuth(''); setEnviandoAuth(true);
@@ -214,7 +215,7 @@ export default function PainelGestao({ voltar }) {
 
         // Sem latitude/longitude por enquanto — o endereço é localizado no mapa quando o admin aprova.
         const { nova } = await adicionarInstituicao({
-          nome: reg.nome.trim(), tipo: reg.tipo, whatsapp: reg.whatsapp.trim(), endereco: reg.endereco.trim(),
+          nome: reg.nome.trim(), tipo: reg.tipo, whatsapp: normalizarTelefone(reg.whatsapp), endereco: reg.endereco.trim(),
           bairro: reg.bairro.trim(), cep: reg.cep.trim(), emailContato: emailLimpo, ownerId: uid,
           documento: { nome: arquivoDoc.nome, path: caminho },
         }, 'pendente');
@@ -327,7 +328,7 @@ export default function PainelGestao({ voltar }) {
   }
 
   function abrirEdicaoInstituicao(inst) {
-    setFormInst({ nome: inst.nome, tipo: inst.tipo, whatsapp: inst.whatsapp || '', endereco: inst.endereco || '', bairro: inst.bairro || '', cep: inst.cep || '' });
+    setFormInst({ nome: inst.nome, tipo: inst.tipo, whatsapp: inst.whatsapp ? formatarTelefone(inst.whatsapp) : '', endereco: inst.endereco || '', bairro: inst.bairro || '', cep: inst.cep || '' });
     setEditandoInstId(inst.id); setErroFormInst(''); setFormInstAberto(true);
   }
 
@@ -336,7 +337,7 @@ export default function PainelGestao({ voltar }) {
   async function salvarFormInstituicao() {
     if (salvandoInst) return;
     if (!formInst.nome.trim()) { setErroFormInst('Dá um nome pra instituição.'); return; }
-    if (!formInst.whatsapp.trim()) { setErroFormInst('Informa um WhatsApp de contato.'); return; }
+    if (tipoTelefone(formInst.whatsapp) === 'invalido') { setErroFormInst('Informa um telefone de contato com DDD (10 ou 11 números).'); return; }
 
     setErroFormInst(''); setAvisoInst(''); setSalvandoInst(true);
     try {
@@ -345,7 +346,7 @@ export default function PainelGestao({ voltar }) {
       const atual = editandoInstId ? todasInstituicoes.find((i) => i.id === editandoInstId) : null;
       const camposEndereco = ['endereco', 'bairro', 'cep'];
       const enderecoMudou = !atual || camposEndereco.some((k) => (atual[k] || '').trim() !== (formInst[k] || '').trim());
-      let campos = { ...formInst };
+      let campos = { ...formInst, whatsapp: normalizarTelefone(formInst.whatsapp) };
       if (enderecoMudou || !instituicaoTemCoordenadas(atual)) {
         if (camposEndereco.some((k) => (formInst[k] || '').trim())) {
           const geo = await geocodificarEndereco(formInst);
@@ -511,76 +512,83 @@ export default function PainelGestao({ voltar }) {
   const css = `
     @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
     .pn-app { --paper:#EEF2EA; --ink:#1B3A2B; --coral:#E85A3B; --marigold:#E8A23B; --muted:#6B7A6E; --card:#FFFFFF;
-      font-family:'IBM Plex Sans',system-ui,sans-serif; background:var(--paper); color:var(--ink); max-width:430px; margin:0 auto; min-height:100vh; padding-bottom:32px; }
+      font-family:'IBM Plex Sans',system-ui,sans-serif; background:var(--paper); color:var(--texto); max-width:430px; margin:0 auto; min-height:100vh; padding-bottom:32px; }
     .pn-app * { box-sizing:border-box; }
-    .pn-header { background:var(--ink); color:var(--paper); padding:16px 20px 26px; }
+    .pn-app { --cabecalho:#1B3A2B; --texto:#111111; --texto-suave:#333333; --placeholder:#666666; --sobre-ink:#EEF2EA;
+          --borda:rgba(27,58,43,0.14); --borda-forte:rgba(27,58,43,0.24); --fundo-suave:rgba(27,58,43,0.06); --campo-bg:#FFFFFF; --scrim:rgba(27,58,43,0.42); --mapa-bg:#E2EAE0;
+          --tag-evento-bg:rgba(37,99,235,0.14); --tag-todas-bg:rgba(232,162,59,0.28); --tag-aviso-bg:rgba(232,162,59,0.24); --tag-status-bg:rgba(232,90,58,0.16); }
+    .pn-app[data-tema='escuro'] { --paper:#0F1311; --card:#1A201D; --ink:#2F6F4F; --texto:#FFFFFF; --texto-suave:#D8DEDB; --placeholder:#9AA5A0; --sobre-ink:#FFFFFF;
+          --borda:rgba(255,255,255,0.18); --borda-forte:rgba(255,255,255,0.30); --fundo-suave:rgba(255,255,255,0.09); --campo-bg:#232A26; --scrim:rgba(0,0,0,0.66); --mapa-bg:#1A201D;
+          --tag-evento-bg:rgba(96,150,255,0.32); --tag-todas-bg:rgba(232,162,59,0.36); --tag-aviso-bg:rgba(232,162,59,0.32); --tag-status-bg:rgba(232,90,58,0.36); color-scheme:dark; }
+    .pn-dica { display:block; margin-top:4px; font-size:11.5px; color:var(--texto-suave); }
+    .pn-header { background:var(--cabecalho); color:#EEF2EA; padding:16px 20px 26px; }
     .pn-voltar { display:inline-flex; align-items:center; gap:5px; border:none; background:transparent; color:rgba(238,242,234,0.75); font-family:inherit; font-size:12.5px; cursor:pointer; padding:0 0 10px; }
     .pn-wordmark { display:flex; align-items:center; gap:8px; font-family:'Fraunces',Georgia,serif; font-weight:700; font-size:22px; }
     .pn-wordmark svg { color:var(--marigold); flex-shrink:0; }
     .pn-subtitulo { margin:4px 0 0 28px; font-size:13px; color:rgba(238,242,234,0.75); }
     .pn-login-wrap { padding:20px 20px 0; }
-    .pn-auth-tabs { display:flex; gap:6px; background:rgba(27,58,43,0.07); border-radius:10px; padding:4px; margin-bottom:14px; }
-    .pn-auth-tabs button { flex:1; border:none; background:transparent; color:var(--muted); font-family:inherit; font-size:13px; font-weight:500; padding:8px 0; border-radius:7px; cursor:pointer; }
-    .pn-auth-tabs button.ativo { background:var(--card); color:var(--ink); box-shadow:0 1px 3px rgba(27,58,43,0.12); }
-    .pn-login-card { background:var(--card); border:1px solid rgba(27,58,43,0.12); border-radius:14px; padding:20px; }
+    .pn-auth-tabs { display:flex; gap:6px; background:var(--fundo-suave); border-radius:10px; padding:4px; margin-bottom:14px; }
+    .pn-auth-tabs button { flex:1; border:none; background:transparent; color:var(--texto-suave); font-family:inherit; font-size:13px; font-weight:500; padding:8px 0; border-radius:7px; cursor:pointer; }
+    .pn-auth-tabs button.ativo { background:var(--card); color:var(--texto); box-shadow:0 1px 3px rgba(27,58,43,0.12); }
+    .pn-login-card { background:var(--card); border:1px solid var(--borda); border-radius:14px; padding:20px; }
     .pn-login-card h2 { margin:0 0 4px; font-size:17px; }
-    .pn-login-card p.desc { margin:0 0 18px; font-size:12.5px; color:var(--muted); }
+    .pn-login-card p.desc { margin:0 0 18px; font-size:12.5px; color:var(--texto-suave); }
     .pn-campo { margin-bottom:12px; }
-    .pn-campo label { display:block; font-size:12px; color:var(--muted); margin-bottom:4px; }
-    .pn-campo input, .pn-campo select { width:100%; font-family:inherit; font-size:14px; color:var(--ink); border:1px solid rgba(27,58,43,0.18); border-radius:8px; padding:10px 11px; background:#fff; }
+    .pn-campo label { display:block; font-size:12px; color:var(--texto-suave); margin-bottom:4px; }
+    .pn-campo input, .pn-campo select { width:100%; font-family:inherit; font-size:14px; color:var(--texto); border:1px solid var(--borda); border-radius:8px; padding:10px 11px; background:var(--campo-bg); }
     .pn-campo-dupla { display:flex; gap:10px; }
     .pn-campo-dupla .pn-campo { flex:1; }
     .pn-senha-wrap { position:relative; }
-    .pn-senha-wrap button { position:absolute; right:8px; top:8px; border:none; background:transparent; color:var(--muted); cursor:pointer; padding:4px; display:flex; }
+    .pn-senha-wrap button { position:absolute; right:8px; top:8px; border:none; background:transparent; color:var(--texto-suave); cursor:pointer; padding:4px; display:flex; }
     .pn-erro-form { font-size:12.5px; color:var(--coral); margin-bottom:10px; }
-    .pn-btn-entrar { width:100%; border:none; background:var(--ink); color:var(--paper); font-family:inherit; font-size:14px; font-weight:600; padding:11px 0; border-radius:9px; cursor:pointer; }
+    .pn-btn-entrar { width:100%; border:none; background:var(--ink); color:var(--sobre-ink); font-family:inherit; font-size:14px; font-weight:600; padding:11px 0; border-radius:9px; cursor:pointer; }
     .pn-conta-bar { display:flex; align-items:center; justify-content:space-between; padding:14px 16px 0; }
-    .pn-conta-info { display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--muted); }
+    .pn-conta-info { display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--texto-suave); }
     .pn-badge-admin { display:flex; align-items:center; gap:5px; background:var(--marigold); color:#fff; font-size:11px; font-weight:600; padding:3px 9px; border-radius:999px; }
-    .pn-btn-sair { display:flex; align-items:center; gap:5px; border:none; background:transparent; color:var(--muted); font-family:inherit; font-size:12.5px; cursor:pointer; }
+    .pn-btn-sair { display:flex; align-items:center; gap:5px; border:none; background:transparent; color:var(--texto-suave); font-family:inherit; font-size:12.5px; cursor:pointer; }
     .pn-seletor { margin:14px 16px 0; }
-    .pn-seletor label { display:block; font-size:12.5px; color:var(--muted); margin-bottom:6px; }
-    .pn-seletor select { width:100%; font-family:inherit; font-size:14.5px; color:var(--ink); background:var(--card); border:1px solid rgba(27,58,43,0.16); border-radius:10px; padding:10px 12px; }
+    .pn-seletor label { display:block; font-size:12.5px; color:var(--texto-suave); margin-bottom:6px; }
+    .pn-seletor select { width:100%; font-family:inherit; font-size:14.5px; color:var(--texto); background:var(--card); border:1px solid var(--borda); border-radius:10px; padding:10px 12px; }
     .pn-toolbar { display:flex; align-items:center; justify-content:space-between; margin:18px 16px 0; }
-    .pn-toolbar h2 { font-size:14px; margin:0; color:var(--muted); font-weight:500; }
+    .pn-toolbar h2 { font-size:14px; margin:0; color:var(--texto-suave); font-weight:500; }
     .pn-btn-nova { display:flex; align-items:center; gap:6px; border:none; background:var(--coral); color:#fff; font-family:inherit; font-size:13px; font-weight:600; padding:8px 12px; border-radius:8px; cursor:pointer; }
     .pn-lista { margin:12px 16px 0; display:flex; flex-direction:column; gap:10px; }
-    .pn-linha { background:var(--card); border:1px solid rgba(27,58,43,0.10); border-radius:10px; padding:12px 14px; }
-    .pn-linha-inst { display:flex; align-items:center; gap:5px; font-size:11.5px; color:var(--muted); margin-bottom:6px; }
+    .pn-linha { background:var(--card); border:1px solid var(--borda); border-radius:10px; padding:12px 14px; }
+    .pn-linha-inst { display:flex; align-items:center; gap:5px; font-size:11.5px; color:var(--texto-suave); margin-bottom:6px; }
     .pn-linha-top { display:flex; align-items:center; gap:8px; }
-    .pn-linha-top svg.icone-cat { color:var(--muted); flex-shrink:0; }
+    .pn-linha-top svg.icone-cat { color:var(--texto-suave); flex-shrink:0; }
     .pn-linha h3 { margin:0; font-size:15px; font-weight:600; flex:1; }
     .pn-linha-tags { display:flex; gap:6px; margin:8px 0 10px; flex-wrap:wrap; }
-    .pn-tag { font-size:12px; background:rgba(27,58,43,0.06); color:var(--ink); padding:4px 9px; border-radius:7px; }
-    .pn-tag-status { background:rgba(232,90,58,0.14); color:var(--coral); font-weight:600; }
+    .pn-tag { font-size:12px; background:var(--fundo-suave); color:var(--texto); padding:4px 9px; border-radius:7px; }
+    .pn-tag-status { background:var(--tag-status-bg); color:var(--texto); font-weight:600; }
     .pn-status-row { display:flex; gap:6px; margin-bottom:10px; }
-    .pn-status-pill { flex:1; border:1px solid rgba(27,58,43,0.16); background:var(--card); color:var(--ink); font-family:inherit; font-size:11.5px; padding:6px 4px; border-radius:999px; cursor:pointer; }
+    .pn-status-pill { flex:1; border:1px solid var(--borda); background:var(--card); color:var(--texto); font-family:inherit; font-size:11.5px; padding:6px 4px; border-radius:999px; cursor:pointer; }
     .pn-status-pill.ativo { color:#fff; border-color:transparent; }
     .pn-linha-acoes { display:flex; gap:8px; }
-    .pn-mini-btn { display:flex; align-items:center; gap:5px; border:none; background:transparent; color:var(--ink); font-family:inherit; font-size:12.5px; padding:6px 4px; cursor:pointer; }
+    .pn-mini-btn { display:flex; align-items:center; gap:5px; border:none; background:transparent; color:var(--texto); font-family:inherit; font-size:12.5px; padding:6px 4px; cursor:pointer; }
     .pn-mini-btn.remover { color:var(--coral); margin-left:auto; }
     .pn-confirma { display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--coral); margin-left:auto; }
     .pn-confirma button { border:none; background:var(--coral); color:#fff; font-family:inherit; font-size:12px; padding:5px 10px; border-radius:6px; cursor:pointer; }
-    .pn-confirma button.cancelar { background:transparent; color:var(--muted); }
-    .pn-vazio { margin:14px 16px 0; text-align:center; color:var(--muted); font-size:13px; padding:30px 20px; background:var(--card); border:1px dashed rgba(27,58,43,0.2); border-radius:10px; }
-    .pn-form { margin:12px 16px 0; background:var(--card); border:1px solid rgba(27,58,43,0.14); border-radius:12px; padding:14px; }
+    .pn-confirma button.cancelar { background:transparent; color:var(--texto-suave); }
+    .pn-vazio { margin:14px 16px 0; text-align:center; color:var(--texto-suave); font-size:13px; padding:30px 20px; background:var(--card); border:1px dashed var(--borda-forte); border-radius:10px; }
+    .pn-form { margin:12px 16px 0; background:var(--card); border:1px solid var(--borda); border-radius:12px; padding:14px; }
     .pn-form-top { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
     .pn-form-top h3 { margin:0; font-size:14.5px; }
     .pn-checks { display:flex; flex-direction:column; gap:6px; margin:4px 0 12px; }
-    .pn-checks label { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--ink); }
-    .pn-checks input { width:17px; height:17px; accent-color:var(--ink); }
+    .pn-checks label { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--texto); }
+    .pn-checks input { width:17px; height:17px; accent-color:var(--texto); }
     .pn-form-acoes { display:flex; gap:10px; }
     .pn-btn { flex:1; display:flex; align-items:center; justify-content:center; gap:7px; border:none; border-radius:9px; padding:10px 0; font-family:inherit; font-size:13.5px; font-weight:600; cursor:pointer; }
-    .pn-btn.primario { background:var(--ink); color:var(--paper); }
-    .pn-btn.secundario { background:transparent; color:var(--muted); border:1px solid rgba(27,58,43,0.18); }
-    .pn-carregando { margin:14px 16px 0; font-size:13px; color:var(--muted); }
+    .pn-btn.primario { background:var(--ink); color:var(--sobre-ink); }
+    .pn-btn.secundario { background:transparent; color:var(--texto-suave); border:1px solid var(--borda); }
+    .pn-carregando { margin:14px 16px 0; font-size:13px; color:var(--texto-suave); }
     .pn-aviso-storage { margin:12px 16px 0; font-size:12px; color:var(--coral); }
-    .pn-rodape { text-align:center; font-size:11px; color:var(--muted); padding:22px 24px 0; line-height:1.5; }
+    .pn-rodape { text-align:center; font-size:11px; color:var(--texto-suave); padding:22px 24px 0; line-height:1.5; }
 
     /* ---- upload de documento + nota de análise (cadastro) ---- */
-    .pn-upload { display:flex; align-items:center; gap:8px; border:1px dashed rgba(27,58,43,0.3); border-radius:8px; padding:10px 11px; font-size:13px; color:var(--muted); cursor:pointer; background:#fff; }
-    .pn-upload:hover { border-color:rgba(27,58,43,0.5); }
-    .pn-nota-analise { font-size:11.5px; color:var(--muted); background:rgba(27,58,43,0.05); border-radius:8px; padding:9px 11px; margin:2px 0 12px; line-height:1.5; }
+    .pn-upload { display:flex; align-items:center; gap:8px; border:1px dashed var(--borda-forte); border-radius:8px; padding:10px 11px; font-size:13px; color:var(--texto-suave); cursor:pointer; background:var(--campo-bg); }
+    .pn-upload:hover { border-color:var(--borda-forte); }
+    .pn-nota-analise { font-size:11.5px; color:var(--texto-suave); background:var(--fundo-suave); border-radius:8px; padding:9px 11px; margin:2px 0 12px; line-height:1.5; }
 
     /* ---- tela de confirmação após cadastro ---- */
     .pn-confirmacao { text-align:center; }
@@ -588,53 +596,53 @@ export default function PainelGestao({ voltar }) {
     .pn-confirmacao h2 { margin:0 0 6px; }
 
     /* ---- abas do admin (Turmas / Cadastros pendentes) ---- */
-    .pn-abas-admin { display:flex; gap:6px; margin:14px 16px 0; background:rgba(27,58,43,0.07); border-radius:10px; padding:4px; }
-    .pn-abas-admin button { flex:1; display:flex; align-items:center; justify-content:center; gap:6px; border:none; background:transparent; color:var(--muted); font-family:inherit; font-size:13px; font-weight:500; padding:8px 0; border-radius:7px; cursor:pointer; }
-    .pn-abas-admin button.ativo { background:var(--card); color:var(--ink); box-shadow:0 1px 3px rgba(27,58,43,0.12); }
+    .pn-abas-admin { display:flex; gap:6px; margin:14px 16px 0; background:var(--fundo-suave); border-radius:10px; padding:4px; }
+    .pn-abas-admin button { flex:1; display:flex; align-items:center; justify-content:center; gap:6px; border:none; background:transparent; color:var(--texto-suave); font-family:inherit; font-size:13px; font-weight:500; padding:8px 0; border-radius:7px; cursor:pointer; }
+    .pn-abas-admin button.ativo { background:var(--card); color:var(--texto); box-shadow:0 1px 3px rgba(27,58,43,0.12); }
     .pn-contador { background:var(--coral); color:#fff; font-size:10.5px; font-weight:700; padding:1px 6px; border-radius:999px; }
 
     /* ---- fila de cadastros pendentes ---- */
     .pn-pendentes-wrap { padding-bottom:8px; }
-    .pn-pendente-info { font-size:12px; color:var(--muted); margin:2px 0; }
-    .pn-doc-link { display:inline-flex; align-items:center; gap:5px; font-size:12.5px; color:var(--ink); text-decoration:underline; margin:6px 0; }
-    .pn-mini-btn.aprovar { color:#2E7D32; }
+    .pn-pendente-info { font-size:12px; color:var(--texto-suave); margin:2px 0; }
+    .pn-doc-link { display:inline-flex; align-items:center; gap:5px; font-size:12.5px; color:var(--texto); text-decoration:underline; margin:6px 0; }
+    .pn-mini-btn.aprovar { color:var(--texto); font-weight:600; }
     .pn-recusa-form { margin-top:8px; }
-    .pn-recusa-form input { width:100%; font-family:inherit; font-size:13px; border:1px solid rgba(27,58,43,0.18); border-radius:8px; padding:8px 10px; margin-bottom:8px; }
+    .pn-recusa-form input { width:100%; font-family:inherit; font-size:13px; border:1px solid var(--borda); border-radius:8px; padding:8px 10px; margin-bottom:8px; }
 
     /* ---- log de e-mails simulados ---- */
-    .pn-btn-emails { display:flex; align-items:center; gap:7px; margin:14px 16px 0; border:1px solid rgba(27,58,43,0.16); background:var(--card); color:var(--ink); font-family:inherit; font-size:12.5px; padding:9px 14px; border-radius:8px; cursor:pointer; }
+    .pn-btn-emails { display:flex; align-items:center; gap:7px; margin:14px 16px 0; border:1px solid var(--borda); background:var(--card); color:var(--texto); font-family:inherit; font-size:12.5px; padding:9px 14px; border-radius:8px; cursor:pointer; }
     .pn-emails-lista { margin:10px 16px 0; display:flex; flex-direction:column; gap:8px; }
-    .pn-emails-vazio { display:flex; align-items:center; gap:6px; font-size:12.5px; color:var(--muted); }
-    .pn-email { background:var(--card); border:1px solid rgba(27,58,43,0.10); border-radius:9px; padding:10px 12px; }
-    .pn-email-topo { display:flex; justify-content:space-between; align-items:center; font-size:11px; color:var(--muted); margin-bottom:4px; gap:8px; }
+    .pn-emails-vazio { display:flex; align-items:center; gap:6px; font-size:12.5px; color:var(--texto-suave); }
+    .pn-email { background:var(--card); border:1px solid var(--borda); border-radius:9px; padding:10px 12px; }
+    .pn-email-topo { display:flex; justify-content:space-between; align-items:center; font-size:11px; color:var(--texto-suave); margin-bottom:4px; gap:8px; }
     .pn-email-topo span { display:flex; align-items:center; gap:4px; }
     .pn-email-data { flex-shrink:0; white-space:nowrap; }
-    .pn-email-assunto { font-size:13px; font-weight:600; color:var(--ink); margin:0 0 3px; }
-    .pn-email-corpo { font-size:12px; color:var(--muted); margin:0; line-height:1.5; }
+    .pn-email-assunto { font-size:13px; font-weight:600; color:var(--texto); margin:0 0 3px; }
+    .pn-email-corpo { font-size:12px; color:var(--texto-suave); margin:0; line-height:1.5; }
 
     /* ---- aviso de localização, selos e botões desativados ---- */
-    .pn-aviso-info { display:flex; align-items:flex-start; justify-content:space-between; gap:8px; margin:12px 16px 0; font-size:12.5px; line-height:1.5; color:var(--ink); background:rgba(232,162,59,0.16); border-radius:8px; padding:9px 12px; }
-    .pn-aviso-info button { border:none; background:transparent; color:var(--muted); cursor:pointer; padding:2px; display:flex; flex-shrink:0; }
-    .pn-tag-aviso { background:rgba(232,162,59,0.18); color:#8a5a00; font-weight:600; }
+    .pn-aviso-info { display:flex; align-items:flex-start; justify-content:space-between; gap:8px; margin:12px 16px 0; font-size:12.5px; line-height:1.5; color:var(--texto); background:var(--tag-aviso-bg); border-radius:8px; padding:9px 12px; }
+    .pn-aviso-info button { border:none; background:transparent; color:var(--texto-suave); cursor:pointer; padding:2px; display:flex; flex-shrink:0; }
+    .pn-tag-aviso { background:var(--tag-aviso-bg); color:var(--texto); font-weight:600; }
     .pn-mini-btn:disabled, .pn-btn:disabled { opacity:0.55; cursor:default; }
     button.pn-doc-link { border:none; background:transparent; cursor:pointer; font-family:inherit; padding:0; }
     .pn-campo .pn-radios { display:flex; gap:8px; flex-wrap:wrap; }
-    .pn-campo .pn-radio { position:relative; flex:1; min-width:140px; display:flex; flex-direction:column; align-items:flex-start; gap:3px; border:1px solid rgba(27,58,43,0.18); border-radius:9px; padding:10px 12px; margin:0; font-size:14px; font-weight:600; line-height:1.3; color:var(--ink); cursor:pointer; background:#fff; }
-    .pn-campo .pn-radio.ativo { border-color:var(--ink); background:rgba(27,58,43,0.06); }
+    .pn-campo .pn-radio { position:relative; flex:1; min-width:140px; display:flex; flex-direction:column; align-items:flex-start; gap:3px; border:1px solid var(--borda); border-radius:9px; padding:10px 12px; margin:0; font-size:14px; font-weight:600; line-height:1.3; color:var(--texto); cursor:pointer; background:var(--campo-bg); }
+    .pn-campo .pn-radio.ativo { border-color:var(--texto); background:var(--fundo-suave); }
     .pn-campo .pn-radio input { position:absolute; opacity:0; pointer-events:none; width:0; height:0; padding:0; border:0; }
-    .pn-campo .pn-radio small { display:block; color:var(--muted); font-size:12px; font-weight:400; }
-    .pn-tag-evento { background:rgba(37,99,235,0.12); color:#1d4ed8; font-weight:600; display:inline-flex; align-items:center; gap:4px; }
+    .pn-campo .pn-radio small { display:block; color:var(--texto-suave); font-size:12px; font-weight:400; }
+    .pn-tag-evento { background:var(--tag-evento-bg); color:var(--texto); font-weight:600; display:inline-flex; align-items:center; gap:4px; }
 
     /* ---- formulários (turma, instituição e cadastro): texto preto, pra ler melhor ---- */
-    .pn-form, .pn-login-card { color:#111; }
-    .pn-form h3, .pn-login-card h2 { color:#111; }
-    .pn-form .pn-campo label, .pn-login-card .pn-campo label { color:#1f1f1f; font-weight:600; }
-    .pn-form .pn-campo input, .pn-form .pn-campo select, .pn-login-card .pn-campo input, .pn-login-card .pn-campo select { color:#000; }
-    .pn-form .pn-campo input::placeholder, .pn-login-card .pn-campo input::placeholder { color:#6b6b6b; }
-    .pn-form .pn-checks label { color:#111; }
-    .pn-form .pn-radio { color:#111; }
-    .pn-form .pn-radio small { color:#4a4a4a; }
-    .pn-form .pn-nota-analise, .pn-login-card .pn-nota-analise, .pn-login-card .desc { color:#333; }
+    .pn-form, .pn-login-card { color:var(--texto); }
+    .pn-form h3, .pn-login-card h2 { color:var(--texto); }
+    .pn-form .pn-campo label, .pn-login-card .pn-campo label { color:var(--texto); font-weight:600; }
+    .pn-form .pn-campo input, .pn-form .pn-campo select, .pn-login-card .pn-campo input, .pn-login-card .pn-campo select { color:var(--texto); }
+    .pn-form .pn-campo input::placeholder, .pn-login-card .pn-campo input::placeholder { color:var(--placeholder); }
+    .pn-form .pn-checks label { color:var(--texto); }
+    .pn-form .pn-radio { color:var(--texto); }
+    .pn-form .pn-radio small { color:var(--texto-suave); }
+    .pn-form .pn-nota-analise, .pn-login-card .pn-nota-analise, .pn-login-card .desc { color:var(--texto-suave); }
 
     /* ---- Desktop: painel usa a largura da tela, login fica num cartão centralizado ---- */
     @media (min-width: 860px) {
@@ -660,11 +668,11 @@ export default function PainelGestao({ voltar }) {
     }
   `;
 
-  if (carregandoSessao) return <div className="pn-app"><style>{css}</style><p className="pn-carregando">Carregando…</p></div>;
+  if (carregandoSessao) return <div className="pn-app" data-tema={tema}><style>{css}</style><p className="pn-carregando">Carregando…</p></div>;
 
   if (!usuario) {
     return (
-      <div className="pn-app">
+      <div className="pn-app" data-tema={tema}>
         <style>{css}</style>
         <header className="pn-header">
           <button className="pn-voltar" onClick={voltar}><ArrowLeft size={13} /> Início</button>
@@ -712,7 +720,7 @@ export default function PainelGestao({ voltar }) {
                 <div className="pn-campo"><label>Senha</label><input type="password" value={reg.senha} onChange={(e) => setReg({ ...reg, senha: e.target.value })} placeholder="mín. 6 caracteres" /></div>
                 <div className="pn-campo"><label>Confirmar senha</label><input type="password" value={reg.confirmar} onChange={(e) => setReg({ ...reg, confirmar: e.target.value })} /></div>
               </div>
-              <div className="pn-campo"><label>WhatsApp de contato</label><input type="text" value={reg.whatsapp} onChange={(e) => setReg({ ...reg, whatsapp: e.target.value })} placeholder="Ex: 5511999990000" /></div>
+              <div className="pn-campo"><label>Telefone ou WhatsApp de contato</label><input type="text" value={reg.whatsapp} onChange={(e) => setReg({ ...reg, whatsapp: e.target.value })} placeholder="Ex: (11) 99999-0000 ou (11) 3333-4444" /><small className="pn-dica">Com DDD. Celular (9 dígitos) vira WhatsApp; número fixo (8 dígitos) vira “ligar”.</small></div>
               <div className="pn-campo"><label>Endereço</label><input type="text" value={reg.endereco} onChange={(e) => setReg({ ...reg, endereco: e.target.value })} placeholder="Rua, número" /></div>
               <div className="pn-campo-dupla">
                 <div className="pn-campo"><label>Bairro</label><input type="text" value={reg.bairro} onChange={(e) => setReg({ ...reg, bairro: e.target.value })} /></div>
@@ -740,7 +748,7 @@ export default function PainelGestao({ voltar }) {
   }
 
   return (
-    <div className="pn-app">
+    <div className="pn-app" data-tema={tema}>
       <style>{css}</style>
       <header className="pn-header">
         <div className="pn-wordmark"><MapPin size={20} strokeWidth={2.2} />ConectaAção</div>
@@ -779,7 +787,7 @@ export default function PainelGestao({ voltar }) {
                     <span className="pn-tag">{inst.tipo}</span>
                     {inst.bairro && <span className="pn-tag">{inst.bairro}</span>}
                   </div>
-                  <p className="pn-pendente-info">WhatsApp: {inst.whatsapp} {inst.endereco && `· ${inst.endereco}`}</p>
+                  <p className="pn-pendente-info">{rotuloTelefone(inst.whatsapp)}: {formatarTelefone(inst.whatsapp)} {inst.endereco && `· ${inst.endereco}`}</p>
                   <p className="pn-pendente-info">Cadastrado em {new Date(inst.dataCadastro).toLocaleDateString('pt-BR')}</p>
                   {inst.documento && (
                     <button className="pn-doc-link" onClick={() => baixarDocumento(inst)}>
@@ -856,7 +864,7 @@ export default function PainelGestao({ voltar }) {
                   {!instituicaoTemCoordenadas(inst) && <span className="pn-tag pn-tag-aviso">Sem posição no mapa</span>}
                   {(inst.precisaoLocalizacao === 'bairro' || inst.precisaoLocalizacao === 'cep') && <span className="pn-tag pn-tag-aviso">Posição aproximada</span>}
                 </div>
-                <p className="pn-pendente-info">WhatsApp: {inst.whatsapp || '—'} {inst.endereco && `· ${inst.endereco}`}</p>
+                <p className="pn-pendente-info">{inst.whatsapp ? rotuloTelefone(inst.whatsapp) : 'Telefone'}: {inst.whatsapp ? formatarTelefone(inst.whatsapp) : '—'} {inst.endereco && `· ${inst.endereco}`}</p>
                 {removendoInstId === inst.id ? (
                   <div className="pn-confirma">Remover essa instituição (e as turmas dela)?
                     <button onClick={() => confirmarRemocaoInstituicao(inst)}>Sim</button>
@@ -914,7 +922,7 @@ export default function PainelGestao({ voltar }) {
 
       {formAberto && (
         <div className="pn-form">
-          <div className="pn-form-top"><h3>{editando ? 'Editar turma' : 'Nova turma'}</h3><button onClick={cancelarForm} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--muted)' }}><X size={16} /></button></div>
+          <div className="pn-form-top"><h3>{editando ? 'Editar turma' : 'Nova turma'}</h3><button onClick={cancelarForm} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--texto-suave)' }}><X size={16} /></button></div>
           {usuario.papel === 'admin' && (
             <div className="pn-campo"><label>Instituição</label><select value={formData.institucaoId} onChange={(e) => setFormData({ ...formData, institucaoId: e.target.value })}>{instituicoesAprovadas.map((i) => <option key={i.id} value={i.id}>{i.nome}</option>)}</select></div>
           )}

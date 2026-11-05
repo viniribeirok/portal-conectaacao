@@ -1,6 +1,6 @@
-import { MapPin, Search, Building2 } from 'lucide-react';
+import { MapPin, Search, Building2, Sun, Moon } from 'lucide-react';
 
-export default function TelaInicio({ irPortal, irPainel }) {
+export default function TelaInicio({ irPortal, irPainel, tema = 'claro', setTema = () => {} }) {
   return (
     <div className="ini-app">
       <style>{`
@@ -22,7 +22,15 @@ export default function TelaInicio({ irPortal, irPainel }) {
         .ini-btn.secundario { background:rgba(238,242,234,0.07); color:var(--paper); border:1px solid rgba(238,242,234,0.22); }
         .ini-btn.secundario .ini-btn-icone { background:rgba(238,242,234,0.12); color:var(--marigold); }
         .ini-rodape { margin-top:40px; font-size:11px; color:rgba(238,242,234,0.5); }
+        .ini-app { position:relative; }
+        .ini-tema { position:absolute; top:16px; right:16px; display:flex; gap:3px; background:rgba(238,242,234,0.10); border:1px solid rgba(238,242,234,0.18); border-radius:999px; padding:3px; }
+        .ini-tema button { display:flex; align-items:center; gap:5px; border:none; background:transparent; color:rgba(238,242,234,0.85); font-family:inherit; font-size:12px; font-weight:500; padding:6px 11px; border-radius:999px; cursor:pointer; }
+        .ini-tema button.ativo { background:#EEF2EA; color:#111; }
       `}</style>
+      <div className="ini-tema" role="group" aria-label="Aparência do portal">
+        <button className={tema !== 'escuro' ? 'ativo' : ''} onClick={() => setTema('claro')}><Sun size={14} /> Normal</button>
+        <button className={tema === 'escuro' ? 'ativo' : ''} onClick={() => setTema('escuro')}><Moon size={14} /> Escuro</button>
+      </div>
       <div className="ini-wordmark"><MapPin size={28} strokeWidth={2.2} />ConectaAção</div>
       <p className="ini-tagline">Atividades gratuitas ou de baixo custo pra crianças e adolescentes, perto de casa.</p>
       <div className="ini-opcoes">
