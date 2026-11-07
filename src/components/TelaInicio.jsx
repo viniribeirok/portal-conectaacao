@@ -43,7 +43,7 @@ export default function TelaInicio({ irPortal, irPainel, tema = 'claro', setTema
           <div><p className="ini-btn-titulo">Sou uma ONG, CEU ou associação</p><p className="ini-btn-desc">Entrar ou cadastrar minha instituição</p></div>
         </button>
       </div>
-      <p className="ini-rodape">Portal ConectaAção — protótipo</p>
+      <p className="ini-rodape">Portal Conecta Ação</p>
     </div>
   );
 }

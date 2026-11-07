@@ -511,13 +511,13 @@ export default function PainelGestao({ voltar, tema = 'claro' }) {
 
   const css = `
     @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
-    .pn-app { --paper:#EEF2EA; --ink:#1B3A2B; --coral:#E85A3B; --marigold:#E8A23B; --muted:#6B7A6E; --card:#FFFFFF;
+    .pn-app { --paper:#FAF1CD; --ink:#1B3A2B; --coral:#E85A3B; --marigold:#E8A23B; --muted:#6B7A6E; --card:#FFFFFF;
       font-family:'IBM Plex Sans',system-ui,sans-serif; background:var(--paper); color:var(--texto); max-width:430px; margin:0 auto; min-height:100vh; padding-bottom:32px; }
     .pn-app * { box-sizing:border-box; }
-    .pn-app { --cabecalho:#1B3A2B; --texto:#111111; --texto-suave:#333333; --placeholder:#666666; --sobre-ink:#EEF2EA;
+    .pn-app { --cabecalho:#1B3A2B; --borda-card:rgba(0,0,0,0.30); --texto:#111111; --texto-suave:#333333; --placeholder:#666666; --sobre-ink:#EEF2EA;
           --borda:rgba(27,58,43,0.14); --borda-forte:rgba(27,58,43,0.24); --fundo-suave:rgba(27,58,43,0.06); --campo-bg:#FFFFFF; --scrim:rgba(27,58,43,0.42); --mapa-bg:#E2EAE0;
           --tag-evento-bg:rgba(37,99,235,0.14); --tag-todas-bg:rgba(232,162,59,0.28); --tag-aviso-bg:rgba(232,162,59,0.24); --tag-status-bg:rgba(232,90,58,0.16); }
-    .pn-app[data-tema='escuro'] { --paper:#0F1311; --card:#1A201D; --ink:#2F6F4F; --texto:#FFFFFF; --texto-suave:#D8DEDB; --placeholder:#9AA5A0; --sobre-ink:#FFFFFF;
+    .pn-app[data-tema='escuro'] { --paper:#0F1311; --borda-card:rgba(255,255,255,0.22); --card:#1A201D; --ink:#2F6F4F; --texto:#FFFFFF; --texto-suave:#D8DEDB; --placeholder:#9AA5A0; --sobre-ink:#FFFFFF;
           --borda:rgba(255,255,255,0.18); --borda-forte:rgba(255,255,255,0.30); --fundo-suave:rgba(255,255,255,0.09); --campo-bg:#232A26; --scrim:rgba(0,0,0,0.66); --mapa-bg:#1A201D;
           --tag-evento-bg:rgba(96,150,255,0.32); --tag-todas-bg:rgba(232,162,59,0.36); --tag-aviso-bg:rgba(232,162,59,0.32); --tag-status-bg:rgba(232,90,58,0.36); color-scheme:dark; }
     .pn-dica { display:block; margin-top:4px; font-size:11.5px; color:var(--texto-suave); }
@@ -553,7 +553,7 @@ export default function PainelGestao({ voltar, tema = 'claro' }) {
     .pn-toolbar h2 { font-size:14px; margin:0; color:var(--texto-suave); font-weight:500; }
     .pn-btn-nova { display:flex; align-items:center; gap:6px; border:none; background:var(--coral); color:#fff; font-family:inherit; font-size:13px; font-weight:600; padding:8px 12px; border-radius:8px; cursor:pointer; }
     .pn-lista { margin:12px 16px 0; display:flex; flex-direction:column; gap:10px; }
-    .pn-linha { background:var(--card); border:1px solid var(--borda); border-radius:10px; padding:12px 14px; }
+    .pn-linha { background:var(--card); border:1px solid var(--borda-card); border-radius:10px; padding:12px 14px; box-shadow:0 1px 4px rgba(0,0,0,0.10); }
     .pn-linha-inst { display:flex; align-items:center; gap:5px; font-size:11.5px; color:var(--texto-suave); margin-bottom:6px; }
     .pn-linha-top { display:flex; align-items:center; gap:8px; }
     .pn-linha-top svg.icone-cat { color:var(--texto-suave); flex-shrink:0; }
