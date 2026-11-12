@@ -81,11 +81,12 @@ function FormularioInstituicao({ formInst, setFormInst, editando, formInstEmail,
   );
 }
 
-export default function PainelGestao({ voltar, tema = 'claro' }) {
+export default function PainelGestao({ voltar, tema = 'claro', recuperacao = false, erroLink = '', aoConcluirRecuperacao = () => {} }) {
   const [carregandoSessao, setCarregandoSessao] = useState(true);
   const [todasInstituicoes, setTodasInstituicoes] = useState([]);
   const [usuario, setUsuario] = useState(null);
-  const [modoAuth, setModoAuth] = useState('entrar');
+  // 'entrar' | 'cadastrar' | 'recuperar' (pedir o link) | 'novaSenha' (veio do link do e-mail)
+  const [modoAuth, setModoAuth] = useState(recuperacao ? 'novaSenha' : erroLink ? 'recuperar' : 'entrar');
 
   const [email, setEmail] = useState('');
   const [senha, setSenha] = useState('');
@@ -97,6 +98,9 @@ export default function PainelGestao({ voltar, tema = 'claro' }) {
   const [arquivoDoc, setArquivoDoc] = useState(null); // { nome, tipo, conteudo }
   const [erroArquivo, setErroArquivo] = useState('');
   const [cadastroEnviado, setCadastroEnviado] = useState(false);
+  const [avisoAuth, setAvisoAuth] = useState(erroLink ? 'Esse link de recuperação expirou ou já foi usado. Peça um novo abaixo.' : '');
+  const [novaSenha, setNovaSenha] = useState('');
+  const [confirmarNovaSenha, setConfirmarNovaSenha] = useState('');
 
   const instituicoesAprovadas = useMemo(() => todasInstituicoes.filter(instituicaoAprovada), [todasInstituicoes]);
 
@@ -134,7 +138,7 @@ export default function PainelGestao({ voltar, tema = 'claro' }) {
         const { data } = await supabase.auth.getSession();
         const lista = await carregarTodasInstituicoes();
         setTodasInstituicoes(lista);
-        if (data.session) {
+        if (data.session && !recuperacao) {
           const u = await montarUsuario(data.session.user);
           if (u && !(u.papel === 'ong' && mensagemAcessoOng(u, lista))) setUsuario(u);
           else await supabase.auth.signOut();
@@ -230,6 +234,55 @@ export default function PainelGestao({ voltar, tema = 'claro' }) {
       setReg({ nome: '', tipo: 'ONG', email: '', senha: '', confirmar: '', whatsapp: '', endereco: '', bairro: '', cep: '' });
       setArquivoDoc(null);
       setCadastroEnviado(true);
+    } finally {
+      setEnviandoAuth(false);
+    }
+  }
+
+  function traduzirErroRecuperacao(msg = '') {
+    if (/security purposes|rate limit|after \d+ seconds|too many/i.test(msg)) return 'Você pediu há pouco. Espere cerca de 1 minuto e tente de novo.';
+    if (/smtp|sending|error sending/i.test(msg)) return 'Não foi possível enviar o e-mail agora. Tente de novo mais tarde.';
+    return `Não foi possível enviar o link: ${msg}`;
+  }
+
+  function traduzirErroNovaSenha(msg = '') {
+    if (/different from the old/i.test(msg)) return 'Escolha uma senha diferente da anterior.';
+    if (/session|not authenticated|jwt/i.test(msg)) return 'O link expirou. Volte ao login e peça um novo em "Esqueci minha senha".';
+    if (/weak|at least/i.test(msg)) return 'Senha muito fraca. Use pelo menos 6 caracteres.';
+    return `Não foi possível salvar a nova senha: ${msg}`;
+  }
+
+  // "Esqueci minha senha": o Supabase manda um e-mail com um link que volta pra este site.
+  async function pedirRecuperacao() {
+    if (enviandoAuth) return;
+    const emailLimpo = email.trim().toLowerCase();
+    if (!emailLimpo.includes('@')) { setErroAuth('Digita o e-mail que você cadastrou.'); return; }
+    setErroAuth(''); setAvisoAuth(''); setEnviandoAuth(true);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(emailLimpo, { redirectTo: window.location.origin });
+      if (error) { setErroAuth(traduzirErroRecuperacao(error.message)); return; }
+      // a resposta é a mesma exista o e-mail ou não — assim ninguém descobre quem tem cadastro
+      setAvisoAuth('Pronto! Se esse e-mail estiver cadastrado, você vai receber um link para criar uma nova senha. Confira também a caixa de spam. O link vale por pouco tempo.');
+    } finally {
+      setEnviandoAuth(false);
+    }
+  }
+
+  // Tela aberta pelo link do e-mail: grava a nova senha e manda a pessoa entrar de novo.
+  async function salvarNovaSenha() {
+    if (enviandoAuth) return;
+    if (novaSenha.length < 6) { setErroAuth('A senha precisa ter pelo menos 6 caracteres.'); return; }
+    if (novaSenha !== confirmarNovaSenha) { setErroAuth('As senhas não são iguais.'); return; }
+    setErroAuth(''); setEnviandoAuth(true);
+    try {
+      const { error } = await supabase.auth.updateUser({ password: novaSenha });
+      if (error) { setErroAuth(traduzirErroNovaSenha(error.message)); return; }
+      await supabase.auth.signOut();
+      try { window.history.replaceState(null, '', window.location.pathname); } catch (e) { /* segue */ }
+      setNovaSenha(''); setConfirmarNovaSenha(''); setSenha('');
+      setModoAuth('entrar');
+      setAvisoAuth('Senha alterada com sucesso! Entre com a sua nova senha.');
+      aoConcluirRecuperacao();
     } finally {
       setEnviandoAuth(false);
     }
@@ -521,6 +574,8 @@ export default function PainelGestao({ voltar, tema = 'claro' }) {
           --borda:rgba(255,255,255,0.18); --borda-forte:rgba(255,255,255,0.30); --fundo-suave:rgba(255,255,255,0.09); --campo-bg:#232A26; --scrim:rgba(0,0,0,0.66); --mapa-bg:#1A201D;
           --tag-evento-bg:rgba(96,150,255,0.32); --tag-todas-bg:rgba(232,162,59,0.36); --tag-aviso-bg:rgba(232,162,59,0.32); --tag-status-bg:rgba(232,90,58,0.36); color-scheme:dark; }
     .pn-dica { display:block; margin-top:4px; font-size:11.5px; color:var(--texto-suave); }
+    .pn-link { display:block; width:100%; margin-top:10px; border:none; background:transparent; color:var(--texto); font-family:inherit; font-size:13px; font-weight:600; text-decoration:underline; cursor:pointer; padding:6px 0; text-align:center; }
+    .pn-btn-entrar:disabled { opacity:0.6; cursor:default; }
     .pn-header { background:var(--cabecalho); color:#EEF2EA; padding:16px 20px 26px; }
     .pn-voltar { display:inline-flex; align-items:center; gap:5px; border:none; background:transparent; color:rgba(238,242,234,0.75); font-family:inherit; font-size:12.5px; cursor:pointer; padding:0 0 10px; }
     .pn-wordmark { display:flex; align-items:center; gap:8px; font-family:'Fraunces',Georgia,serif; font-weight:700; font-size:22px; }
@@ -689,10 +744,12 @@ export default function PainelGestao({ voltar, tema = 'claro' }) {
             </div>
           ) : (
           <>
+          {(modoAuth === 'entrar' || modoAuth === 'cadastrar') && (
           <div className="pn-auth-tabs">
-            <button className={modoAuth === 'entrar' ? 'ativo' : ''} onClick={() => { setModoAuth('entrar'); setErroAuth(''); }}>Entrar</button>
-            <button className={modoAuth === 'cadastrar' ? 'ativo' : ''} onClick={() => { setModoAuth('cadastrar'); setErroAuth(''); }}>Cadastrar minha ONG</button>
+            <button className={modoAuth === 'entrar' ? 'ativo' : ''} onClick={() => { setModoAuth('entrar'); setErroAuth(''); setAvisoAuth(''); }}>Entrar</button>
+            <button className={modoAuth === 'cadastrar' ? 'ativo' : ''} onClick={() => { setModoAuth('cadastrar'); setErroAuth(''); setAvisoAuth(''); }}>Cadastrar minha ONG</button>
           </div>
+          )}
 
           {modoAuth === 'entrar' ? (
             <div className="pn-login-card">
@@ -706,10 +763,12 @@ export default function PainelGestao({ voltar, tema = 'claro' }) {
                   <button onClick={() => setVerSenha(!verSenha)} type="button" aria-label="Mostrar senha">{verSenha ? <EyeOff size={16} /> : <Eye size={16} />}</button>
                 </div>
               </div>
+              {avisoAuth && <p className="pn-nota-analise">{avisoAuth}</p>}
               {erroAuth && <p className="pn-erro-form">{erroAuth}</p>}
               <button className="pn-btn-entrar" onClick={entrar}>Entrar</button>
+              <button type="button" className="pn-link" onClick={() => { setModoAuth('recuperar'); setErroAuth(''); setAvisoAuth(''); }}>Esqueci minha senha</button>
             </div>
-          ) : (
+          ) : modoAuth === 'cadastrar' ? (
             <div className="pn-login-card">
               <h2>Cadastrar instituição</h2>
               <p className="desc">Crie o acesso da sua ONG, CEU, clube ou associação pra gerenciar turmas.</p>
@@ -738,6 +797,31 @@ export default function PainelGestao({ voltar, tema = 'claro' }) {
               <p className="pn-nota-analise">Sua instituição passa por uma análise antes de poder cadastrar turmas — você recebe um e-mail com o resultado.</p>
               {erroAuth && <p className="pn-erro-form">{erroAuth}</p>}
               <button className="pn-btn-entrar" onClick={cadastrarOng}>Criar conta</button>
+            </div>
+          ) : modoAuth === 'recuperar' ? (
+            <div className="pn-login-card">
+              <h2>Esqueci minha senha</h2>
+              <p className="desc">Digite o e-mail que você cadastrou. Enviamos um link para você criar uma nova senha.</p>
+              <div className="pn-campo"><label>E-mail</label><input type="text" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="seu-email@exemplo.org" onKeyDown={(e) => e.key === 'Enter' && pedirRecuperacao()} /></div>
+              {avisoAuth && <p className="pn-nota-analise">{avisoAuth}</p>}
+              {erroAuth && <p className="pn-erro-form">{erroAuth}</p>}
+              <button className="pn-btn-entrar" onClick={pedirRecuperacao} disabled={enviandoAuth}>{enviandoAuth ? 'Enviando…' : 'Enviar link de recuperação'}</button>
+              <button type="button" className="pn-link" onClick={() => { setModoAuth('entrar'); setErroAuth(''); setAvisoAuth(''); }}>← Voltar ao login</button>
+            </div>
+          ) : (
+            <div className="pn-login-card">
+              <h2>Criar nova senha</h2>
+              <p className="desc">Escolha uma nova senha para a sua conta.</p>
+              <div className="pn-campo">
+                <label>Nova senha</label>
+                <div className="pn-senha-wrap">
+                  <input type={verSenha ? 'text' : 'password'} value={novaSenha} onChange={(e) => setNovaSenha(e.target.value)} placeholder="mínimo de 6 caracteres" />
+                  <button onClick={() => setVerSenha(!verSenha)} type="button" aria-label="Mostrar senha">{verSenha ? <EyeOff size={16} /> : <Eye size={16} />}</button>
+                </div>
+              </div>
+              <div className="pn-campo"><label>Confirmar nova senha</label><input type={verSenha ? 'text' : 'password'} value={confirmarNovaSenha} onChange={(e) => setConfirmarNovaSenha(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && salvarNovaSenha()} /></div>
+              {erroAuth && <p className="pn-erro-form">{erroAuth}</p>}
+              <button className="pn-btn-entrar" onClick={salvarNovaSenha} disabled={enviandoAuth}>{enviandoAuth ? 'Salvando…' : 'Salvar nova senha'}</button>
             </div>
           )}
           </>

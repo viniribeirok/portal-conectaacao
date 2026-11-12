@@ -13,4 +13,8 @@ if (!url || !chave) {
   console.error('Faltam VITE_SUPABASE_URL e/ou VITE_SUPABASE_ANON_KEY — veja o arquivo .env.example.');
 }
 
-export const supabase = createClient(url || 'http://localhost:54321', chave || 'chave-nao-configurada');
+// flowType 'implicit': o link de recuperação de senha funciona mesmo se a pessoa abrir o e-mail em outro
+// aparelho ou navegador (o outro fluxo exige abrir no mesmo navegador em que pediu o link).
+export const supabase = createClient(url || 'http://localhost:54321', chave || 'chave-nao-configurada', {
+  auth: { flowType: 'implicit', detectSessionInUrl: true },
+});

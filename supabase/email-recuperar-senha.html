@@ -1,0 +1,13 @@
+<!-- Modelo do e-mail "Reset Password" (em português).
+     No Supabase: Authentication → Emails → Templates → Reset Password.
+     Assunto sugerido:  Recuperar senha — Portal Conecta Ação
+     Obs.: o Supabase só deixa editar o modelo depois que um SMTP próprio é configurado. -->
+<div style="font-family: Arial, Helvetica, sans-serif; max-width: 480px; margin: 0 auto; color: #111;">
+  <h2 style="margin: 0 0 12px;">Recuperar senha</h2>
+  <p>Olá! Recebemos um pedido para criar uma nova senha no <strong>Portal Conecta Ação</strong>.</p>
+  <p>Para escolher a nova senha, clique no botão abaixo:</p>
+  <p style="margin: 24px 0;">
+    <a href="{{ .ConfirmationURL }}" style="background: #1B3A2B; color: #ffffff; text-decoration: none; padding: 12px 22px; border-radius: 8px; font-weight: bold; display: inline-block;">Criar nova senha</a>
+  </p>
+  <p style="font-size: 13px; color: #444;">O link vale por pouco tempo e só pode ser usado uma vez. Se você não fez esse pedido, é só ignorar este e-mail — nada será alterado.</p>
+</div>
