@@ -8,7 +8,11 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "importar:diagnostico": "node scripts/importador/index.js diagnostico",
+    "importar:ceus": "node scripts/importador/index.js tudo",
+    "importar:ceus:gravar": "node scripts/importador/index.js tudo --gravar",
+    "importar:diagnostico-api": "node scripts/importador/index.js diagnostico-api"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",

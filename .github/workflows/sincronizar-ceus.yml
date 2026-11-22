@@ -1,0 +1,54 @@
+# Sincroniza os CEUs e suas atividades (Prefeitura de São Paulo) com o banco do portal.
+#
+# - Manual:  GitHub → aba Actions → "Sincronizar CEUs" → Run workflow.
+#            Por padrão é só um TESTE (não grava). Marque "gravar" para gravar no banco.
+# - Diário:  roda sozinho todo dia, MAS só depois que você criar a variável de repositório
+#            SINCRONIZACAO_ATIVA = true (Settings → Secrets and variables → Actions → Variables).
+# Segredos necessários (Settings → Secrets and variables → Actions → Secrets):
+#            SUPABASE_URL  e  SUPABASE_SERVICE_ROLE_KEY
+name: Sincronizar CEUs
+
+on:
+  schedule:
+    - cron: '0 9 * * *'   # 09:00 UTC = 06:00 no horário de Brasília
+  workflow_dispatch:
+    inputs:
+      gravar:
+        description: 'Gravar no banco? (desmarcado = só teste)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sincronizar-ceus
+  cancel-in-progress: false
+
+jobs:
+  sincronizar:
+    # a execução diária só liga depois que a variável SINCRONIZACAO_ATIVA = true existir
+    if: github.event_name != 'schedule' || vars.SINCRONIZACAO_ATIVA == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Instalar dependências
+        run: npm install --no-audit --no-fund
+
+      - name: Sincronizar CEUs
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GRAVAR: ${{ github.event_name == 'schedule' || inputs.gravar == true }}
+        run: |
+          if [ "$GRAVAR" = "true" ]; then
+            node scripts/importador/index.js tudo --gravar
+          else
+            node scripts/importador/index.js tudo
+          fi

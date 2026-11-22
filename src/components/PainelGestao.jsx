@@ -947,6 +947,7 @@ export default function PainelGestao({ voltar, tema = 'claro', recuperacao = fal
                   {inst.status && inst.status !== 'aprovada' && <span className="pn-tag pn-tag-status">{inst.status === 'pendente' ? 'Pendente' : 'Recusada'}</span>}
                   {!instituicaoTemCoordenadas(inst) && <span className="pn-tag pn-tag-aviso">Sem posição no mapa</span>}
                   {(inst.precisaoLocalizacao === 'bairro' || inst.precisaoLocalizacao === 'cep') && <span className="pn-tag pn-tag-aviso">Posição aproximada</span>}
+                  {inst.origem && inst.origem !== 'cadastro' && <span className="pn-tag pn-tag-aviso">Importada da Prefeitura</span>}
                 </div>
                 <p className="pn-pendente-info">{inst.whatsapp ? rotuloTelefone(inst.whatsapp) : 'Telefone'}: {inst.whatsapp ? formatarTelefone(inst.whatsapp) : '—'} {inst.endereco && `· ${inst.endereco}`}</p>
                 {removendoInstId === inst.id ? (
@@ -1072,6 +1073,8 @@ export default function PainelGestao({ voltar, tema = 'claro', recuperacao = fal
                 <div className="pn-linha-tags">
                   <span className="pn-tag">{t.categoria}</span><span className="pn-tag">{formatarIdades(t.idadeMin, t.idadeMax)}</span>
                   {t.tipoAtividade === 'pontual' && <span className="pn-tag pn-tag-evento"><CalendarDays size={11} /> Evento de um dia{t.dataEvento ? ` · ${formatarQuando(t)}` : ''}</span>}
+                  {t.horarioTexto && t.tipoAtividade !== 'pontual' && <span className="pn-tag">{t.horarioTexto}</span>}
+                  {t.origem && t.origem !== 'cadastro' && <span className="pn-tag pn-tag-aviso">Importada — atualizada automaticamente</span>}
                   {eventoJaPassou(t) && <span className="pn-tag pn-tag-aviso">Já aconteceu — não aparece na busca</span>}
                   {t.atestado && <span className="pn-tag">Atestado médico</span>}
                   {t.historico && <span className="pn-tag">Histórico escolar</span>}

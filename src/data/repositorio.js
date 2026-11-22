@@ -22,6 +22,8 @@ function deLinha(r) {
     status: r.status, motivoRecusa: r.motivo_recusa, emailContato: r.email_contato, ownerId: r.owner_id,
     documento: r.documento_path ? { nome: r.documento_nome, path: r.documento_path } : null,
     dataCadastro: r.criado_em, dataRevisao: r.revisado_em,
+    // 'cadastro' = veio do formulário do portal; 'ceu_sme' = importada automaticamente do portal dos CEUs
+    origem: r.origem || 'cadastro', urlOrigem: r.url_origem || '', atualizadoEm: r.atualizado_em || null,
   };
 }
 
@@ -49,6 +51,8 @@ function deLinhaTurma(r) {
     atestado: r.atestado, historico: r.historico,
     tipoAtividade: r.tipo_atividade || 'continua', dataEvento: r.data_evento || '', horaInicio: r.hora_inicio || '', horaFim: r.hora_fim || '',
     endereco: r.endereco || '', bairro: r.bairro || '', latitude: r.latitude, longitude: r.longitude, precisaoLocalizacao: r.precisao_localizacao,
+    origem: r.origem || 'cadastro', urlOrigem: r.url_origem || '', horarioTexto: r.horario_texto || '', dataFim: r.data_fim || '',
+    publicoAlvo: r.publico_alvo || '', localNaUnidade: r.local_na_unidade || '', observacoes: r.observacoes || '', descricao: r.descricao || '',
   };
 }
 
@@ -183,9 +187,11 @@ export async function carregarAtividades() {
           // fica sem pino (em vez de apontar para a sede da instituição, que é outro lugar).
           latitude: enderecoProprio ? t.latitude : inst.latitude,
           longitude: enderecoProprio ? t.longitude : inst.longitude,
-          tipoAtividade: t.tipoAtividade, dataEvento: t.dataEvento, horaInicio: t.horaInicio, horaFim: t.horaFim,
-          // evento de um dia não tem checklist de matrícula
-          documentos: t.tipoAtividade === 'pontual' ? [] : construirDocumentos(t),
+          tipoAtividade: t.tipoAtividade, dataEvento: t.dataEvento, horaInicio: t.horaInicio, horaFim: t.horaFim, dataFim: t.dataFim,
+          horarioTexto: t.horarioTexto, origem: t.origem, urlOrigem: t.urlOrigem,
+          publicoAlvo: t.publicoAlvo, localNaUnidade: t.localNaUnidade, observacoes: t.observacoes, descricao: t.descricao,
+          // evento de um dia e atividades importadas (CEUs) não têm o checklist de matrícula do portal
+          documentos: t.tipoAtividade === 'pontual' || t.origem !== 'cadastro' ? [] : construirDocumentos(t),
         };
       });
   });

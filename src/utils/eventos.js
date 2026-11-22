@@ -12,8 +12,10 @@ export function hojeISO(agora = new Date()) {
 }
 
 // Evento de um dia cuja data já passou (não deve aparecer na busca dos pais).
+// Evento de vários dias (ex.: curso de 02 a 20/11) só "passa" depois do último dia.
 export function eventoJaPassou(turma, hoje = hojeISO()) {
-  return turma.tipoAtividade === 'pontual' && !!turma.dataEvento && turma.dataEvento < hoje;
+  const fim = turma.dataFim || turma.dataEvento;
+  return turma.tipoAtividade === 'pontual' && !!fim && fim < hoje;
 }
 
 const DIAS = ['domingo', 'segunda-feira', 'terça-feira', 'quarta-feira', 'quinta-feira', 'sexta-feira', 'sábado'];
@@ -25,6 +27,8 @@ function hhmm(h) {
 
 // "Domingo, 15/11/2026 das 19h às 21h30" (horário só aparece se foi informado).
 export function formatarQuando(turma) {
+  // atividades importadas (CEUs) já trazem o texto pronto: "Quinta, 20h às 21h" ou "02/11/2026 a 20/11/2026, 14h às 17h"
+  if (turma.horarioTexto) return turma.horarioTexto;
   if (turma.tipoAtividade !== 'pontual' || !turma.dataEvento) return '';
   const [a, m, d] = turma.dataEvento.split('-').map(Number);
   const dia = DIAS[new Date(a, m - 1, d).getDay()];

@@ -66,6 +66,7 @@ export default function Portal({ voltar, tema = 'claro' }) {
   const [idade, setIdade] = useState('');
   const [tipoAtividade, setTipoAtividade] = useState('todas');
   const [view, setView] = useState('lista');
+  const [limiteLista, setLimiteLista] = useState(40); // a lista mostra 40 por vez ("Mostrar mais"): são muitas atividades
   const [selecionadaId, setSelecionadaId] = useState(null);
   const [marcadosDocs, setMarcadosDocs] = useState({});
   const [carregandoDocs, setCarregandoDocs] = useState(false);
@@ -73,6 +74,7 @@ export default function Portal({ voltar, tema = 'claro' }) {
   const [minhaLocalizacao, setMinhaLocalizacao] = useState(null);
   const [localizando, setLocalizando] = useState(false);
   const [erroLocalizacao, setErroLocalizacao] = useState('');
+  useEffect(() => { setLimiteLista(40); }, [busca, categoria, idade, tipoAtividade, minhaLocalizacao]);
 
   useEffect(() => {
     let cancelado = false;
@@ -225,6 +227,12 @@ export default function Portal({ voltar, tema = 'claro' }) {
         .pt-inst-linha svg { flex-shrink:0; margin-top:2px; color:var(--texto-suave); }
         .pt-inst-linha small { display:block; color:var(--texto-suave); font-size:12px; }
         .pt-inst-tel { color:var(--texto); font-weight:600; text-decoration:underline; }
+        .pt-info-oficial { display:flex; flex-direction:column; gap:6px; margin:4px 0 14px; padding:12px 14px; border:1px solid var(--borda); border-radius:10px; background:var(--fundo-suave); font-size:13.5px; line-height:1.5; color:var(--texto); }
+        .pt-info-oficial p { margin:0; }
+        .pt-info-oficial a { color:var(--texto); font-weight:600; text-decoration:underline; }
+        .pt-desc-oficial { color:var(--texto-suave); font-size:13px; }
+        .pt-fonte { font-size:11.5px; color:var(--texto-suave); }
+        .pt-mais { align-self:center; margin:6px 0 14px; padding:10px 18px; border-radius:999px; border:1px solid var(--borda-forte); background:var(--card); color:var(--texto); font-family:inherit; font-size:13.5px; font-weight:600; cursor:pointer; }
         .pt-filtros-linha2 { display:flex; flex-wrap:wrap; gap:8px 18px; }
         .pt-cta { display:flex; align-items:center; justify-content:center; gap:7px; width:100%; border:none; border-radius:8px; padding:11px 0; font-family:inherit; font-size:14px; font-weight:600; color:#fff; background:var(--coral); text-decoration:none; cursor:pointer; }
         .pt-card.encerrada .pt-cta { background:var(--muted); }
@@ -350,7 +358,7 @@ export default function Portal({ voltar, tema = 'claro' }) {
               <div className="pt-vazio"><p>Nenhuma turma bate com esses filtros por aqui ainda.<br />Tenta ampliar a busca ou trocar a idade.</p><button onClick={limparFiltros}>Limpar filtros</button></div>
             ) : (
               <div className="pt-lista">
-                {resultados.map((a) => {
+                {resultados.slice(0, limiteLista).map((a) => {
                   const st = STATUS_INFO[a.status];
                   const Icone = ICONE_CATEGORIA[a.categoria];
                   return (
@@ -361,12 +369,15 @@ export default function Portal({ voltar, tema = 'claro' }) {
                       </div>
                       {a.distanciaKm !== undefined && <p className="pt-distancia"><Navigation size={11} /> {formatarDistancia(a.distanciaKm)} de você</p>}
                       <div className="pt-tags"><span className="pt-tag"><Icone size={13} /> {a.categoria}</span><span className={`pt-tag ${todasAsIdades(a.idadeMin, a.idadeMax) ? 'pt-tag-todas' : ''}`}>{formatarIdades(a.idadeMin, a.idadeMax)}</span>{a.tipoAtividade === 'pontual' && <span className="pt-tag pt-tag-evento">Evento de um dia</span>}</div>
-                      {a.tipoAtividade === 'pontual' && a.dataEvento && <p className="pt-quando"><CalendarDays size={13} /> {formatarQuando(a)}</p>}
+                      {(a.horarioTexto || (a.tipoAtividade === 'pontual' && a.dataEvento)) && <p className="pt-quando"><CalendarDays size={13} /> {formatarQuando(a)}</p>}
                       <p className="pt-endereco"><MapPin size={13} /> {[a.endereco, a.bairro].filter(Boolean).join(' — ')}</p>
                       <p className="pt-ver-mais">Ver detalhes e contato <ChevronRight size={15} /></p>
                     </div>
                   );
                 })}
+                {resultados.length > limiteLista && (
+                  <button className="pt-mais" onClick={() => setLimiteLista(limiteLista + 40)}>Mostrar mais ({resultados.length - limiteLista} restantes)</button>
+                )}
               </div>
             )}
           </div>
@@ -439,13 +450,23 @@ export default function Portal({ voltar, tema = 'claro' }) {
               <button onClick={() => setSelecionadaId(null)} aria-label="Fechar"><X size={18} /></button>
             </div>
             <div className="pt-tags"><span className="pt-tag">{atividadeSelecionada.categoria}</span><span className={`pt-tag ${todasAsIdades(atividadeSelecionada.idadeMin, atividadeSelecionada.idadeMax) ? 'pt-tag-todas' : ''}`}>{formatarIdades(atividadeSelecionada.idadeMin, atividadeSelecionada.idadeMax)}</span>{atividadeSelecionada.tipoAtividade === 'pontual' && <span className="pt-tag pt-tag-evento">Evento de um dia</span>}</div>
-            {atividadeSelecionada.tipoAtividade === 'pontual' && atividadeSelecionada.dataEvento && <p className="pt-quando"><CalendarDays size={13} /> {formatarQuando(atividadeSelecionada)}</p>}
+            {(atividadeSelecionada.horarioTexto || (atividadeSelecionada.tipoAtividade === 'pontual' && atividadeSelecionada.dataEvento)) && <p className="pt-quando"><CalendarDays size={13} /> {formatarQuando(atividadeSelecionada)}</p>}
             <p className="pt-endereco"><MapPin size={13} /> {[atividadeSelecionada.endereco, atividadeSelecionada.bairro].filter(Boolean).join(' — ')}</p>
             {tipoTelefone(atividadeSelecionada.whatsapp) === 'celular' && (
               <a className="pt-cta" href={linkWhatsapp(atividadeSelecionada)} target="_blank" rel="noopener noreferrer"><MessageCircle size={15} /> {STATUS_INFO[atividadeSelecionada.status].cta}</a>
             )}
             {tipoTelefone(atividadeSelecionada.whatsapp) === 'fixo' && (
               <a className="pt-cta" href={linkLigar(atividadeSelecionada.whatsapp)}><Phone size={15} /> {CTA_LIGAR[atividadeSelecionada.status]}</a>
+            )}
+            {atividadeSelecionada.origem && atividadeSelecionada.origem !== 'cadastro' && (
+              <div className="pt-info-oficial">
+                {atividadeSelecionada.localNaUnidade && <p><strong>Local:</strong> {atividadeSelecionada.localNaUnidade}</p>}
+                {atividadeSelecionada.publicoAlvo && <p><strong>Público:</strong> {atividadeSelecionada.publicoAlvo}</p>}
+                {atividadeSelecionada.observacoes && <p>{atividadeSelecionada.observacoes}</p>}
+                {atividadeSelecionada.descricao && <p className="pt-desc-oficial">{atividadeSelecionada.descricao}</p>}
+                {atividadeSelecionada.urlOrigem && <p><a href={atividadeSelecionada.urlOrigem} target="_blank" rel="noopener noreferrer">Ver esta atividade no portal oficial dos CEUs</a></p>}
+                <p className="pt-fonte">Fonte: Secretaria Municipal de Educação — Prefeitura de São Paulo.</p>
+              </div>
             )}
             <div className="pt-divider" />
             {(() => {
@@ -470,7 +491,9 @@ export default function Portal({ voltar, tema = 'claro' }) {
                 </>
               );
             })()}
-            {atividadeSelecionada.tipoAtividade === 'pontual' ? (
+            {atividadeSelecionada.origem && atividadeSelecionada.origem !== 'cadastro' ? (
+              <p style={{ fontSize: 13.5, color: 'var(--texto-suave)', lineHeight: 1.5 }}>Para se inscrever ou saber quais documentos pedir, procure a secretaria do CEU no horário indicado acima ou fale com a unidade pelo telefone.</p>
+            ) : atividadeSelecionada.tipoAtividade === 'pontual' ? (
               <p style={{ fontSize: 13.5, color: 'var(--texto-suave)', lineHeight: 1.5 }}>Este é um evento de um dia, então não há checklist de matrícula. Entre em contato com a instituição para confirmar se precisa de inscrição ou de algum documento.</p>
             ) : (
               <>
